@@ -1,0 +1,101 @@
+# ============================================================
+# .gitignore — MRI-to-Synthetic-CT Project
+# ============================================================
+
+# ----- Excluded project folders (not part of this submission) -----
+Synthetic-CT-generation-from-MRI-using-3D-transformer-based-denoising-diffusion-model-main/
+=1.2.0
+
+# ----- Data & Datasets -----
+mc_ddpm_data/
+Task1/
+*.nii
+*.nii.gz
+*.dcm
+*.nrrd
+*.mha
+*.mhd
+*.raw
+*.h5
+*.hdf5
+data/
+dataset/
+datasets/
+raw_data/
+processed_data/
+
+# ----- Model Checkpoints & Weights -----
+*.pth
+*.pt
+*.ckpt
+*.safetensors
+*.bin
+*.onnx
+checkpoints*/
+saved_models/
+weights/
+logs/
+lightning_logs/
+
+# ----- Large Binary Arrays -----
+*.npy
+*.mat
+
+# ----- Outputs to exclude -----
+outputs/
+output/
+predictions*/
+generated/
+samples/
+
+# ----- Python -----
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg-info/
+*.egg
+dist/
+build/
+.eggs/
+
+# ----- Virtual Environments -----
+venv/
+env/
+.env/
+.venv/
+conda-env/
+
+# ----- Jupyter Notebooks -----
+.ipynb_checkpoints/
+*.ipynb_checkpoints
+
+# ----- IDE & Editor -----
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.project
+.classpath
+
+# ----- OS Files -----
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ----- Logs & Misc -----
+*.log
+*.out
+*.err
+wandb/
+mlruns/
+tensorboard/
+runs/
+
+# ----- Archives -----
+*.zip
+*.tar
+*.tar.gz
+*.7z
+*.rar

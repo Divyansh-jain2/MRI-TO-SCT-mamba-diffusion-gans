@@ -1,0 +1,830 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TriMamba-UNet V2 — Complete Pipeline</title>
+    <link
+        href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=DM+Sans:wght@300;400;500;600&display=swap"
+        rel="stylesheet">
+    <style>
+        :root {
+            --bg: #0a0c10;
+            --surface: #111318;
+            --border: #1e2330;
+            --accent-blue: #4f9eff;
+            --accent-cyan: #00e5c8;
+            --accent-purple: #a855f7;
+            --accent-amber: #f59e0b;
+            --accent-rose: #f43f5e;
+            --accent-green: #22c55e;
+            --text-primary: #e8ecf4;
+            --text-secondary: #6b7a99;
+            --text-dim: #3d4a66;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            background: var(--bg);
+            color: var(--text-primary);
+            font-family: 'DM Sans', sans-serif;
+            min-height: 100vh;
+        }
+
+        body::before {
+            content: '';
+            position: fixed;
+            inset: 0;
+            background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.04'/%3E%3C/svg%3E");
+            pointer-events: none;
+            z-index: 0;
+        }
+
+        .page {
+            position: relative;
+            z-index: 1;
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 48px 24px;
+        }
+
+        .header {
+            text-align: center;
+            margin-bottom: 48px;
+            animation: fadeUp .6s ease both;
+        }
+
+        .header-tag {
+            font-family: 'Space Mono', monospace;
+            font-size: 11px;
+            letter-spacing: .25em;
+            color: var(--accent-green);
+            text-transform: uppercase;
+            display: inline-block;
+            background: rgba(34, 197, 94, .1);
+            padding: 4px 14px;
+            border-radius: 20px;
+            border: 1px solid rgba(34, 197, 94, .2);
+            margin-bottom: 16px;
+        }
+
+        .header h1 {
+            font-size: clamp(28px, 5vw, 52px);
+            font-weight: 600;
+            letter-spacing: -.02em;
+            background: linear-gradient(135deg, #e8ecf4 30%, var(--accent-cyan));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            margin-bottom: 12px;
+        }
+
+        .header-sub {
+            color: var(--text-secondary);
+            font-size: 16px;
+            font-weight: 300;
+            max-width: 700px;
+            margin: 0 auto;
+            line-height: 1.6;
+        }
+
+        /* Stats bar */
+        .stats-bar {
+            display: flex;
+            flex-wrap: wrap;
+            justify-content: center;
+            gap: 12px;
+            margin-bottom: 48px;
+            animation: fadeUp .6s .1s ease both;
+        }
+
+        .stat {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            padding: 14px 20px;
+            text-align: center;
+            min-width: 140px;
+        }
+
+        .stat-val {
+            font-family: 'Space Mono', monospace;
+            font-size: 22px;
+            font-weight: 700;
+        }
+
+        .stat-label {
+            font-size: 11px;
+            color: var(--text-secondary);
+            margin-top: 4px;
+            letter-spacing: .05em;
+        }
+
+        /* Sections */
+        .section {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 16px;
+            padding: 28px;
+            margin-bottom: 24px;
+            animation: fadeUp .6s ease both;
+        }
+
+        .section-title {
+            font-family: 'Space Mono', monospace;
+            font-size: 12px;
+            letter-spacing: .15em;
+            text-transform: uppercase;
+            color: var(--text-primary);
+            margin-bottom: 20px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            border-bottom: 1px solid var(--border);
+            padding-bottom: 14px;
+        }
+
+        /* Grid layouts */
+        .grid-2 {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 24px;
+        }
+
+        .grid-3 {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+            gap: 20px;
+        }
+
+        @media (max-width: 900px) {
+            .grid-2 {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        /* Architecture flow */
+        .arch-flow {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+
+        .connector {
+            width: 2px;
+            height: 14px;
+            position: relative;
+        }
+
+        .connector::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 1px;
+            height: 100%;
+            background: var(--border);
+        }
+
+        .connector::after {
+            content: '▼';
+            font-size: 7px;
+            color: var(--text-dim);
+            position: absolute;
+            bottom: -2px;
+            left: 50%;
+            transform: translateX(-50%);
+        }
+
+        .block {
+            width: 100%;
+            max-width: 420px;
+            border-radius: 8px;
+            padding: 10px 14px;
+            border: 1px solid;
+            font-size: 13px;
+        }
+
+        .block-label {
+            font-weight: 500;
+            margin-bottom: 1px;
+        }
+
+        .block-detail {
+            font-family: 'Space Mono', monospace;
+            font-size: 10px;
+            opacity: .65;
+        }
+
+        .block-chip {
+            float: right;
+            font-family: 'Space Mono', monospace;
+            font-size: 9px;
+            padding: 2px 6px;
+            border-radius: 3px;
+            margin-top: 2px;
+        }
+
+        .res-tag {
+            font-family: 'Space Mono', monospace;
+            font-size: 9px;
+            color: var(--text-dim);
+            text-align: right;
+            width: 100%;
+            max-width: 420px;
+            margin-bottom: 3px;
+        }
+
+        .block-mamba {
+            background: rgba(0, 229, 200, .06);
+            border-color: rgba(0, 229, 200, .25);
+            color: var(--accent-cyan);
+        }
+
+        .block-conv {
+            background: rgba(79, 158, 255, .06);
+            border-color: rgba(79, 158, 255, .2);
+            color: var(--accent-blue);
+        }
+
+        .block-att {
+            background: rgba(245, 158, 11, .06);
+            border-color: rgba(245, 158, 11, .25);
+            color: var(--accent-amber);
+        }
+
+        .block-up {
+            background: rgba(168, 85, 247, .06);
+            border-color: rgba(168, 85, 247, .2);
+            color: var(--accent-purple);
+        }
+
+        .block-io {
+            background: rgba(34, 197, 94, .06);
+            border-color: rgba(34, 197, 94, .25);
+            color: var(--accent-green);
+        }
+
+        .block-bn {
+            background: rgba(244, 63, 94, .06);
+            border-color: rgba(244, 63, 94, .25);
+            color: var(--accent-rose);
+        }
+
+        /* Info cards */
+        .card {
+            background: rgba(255, 255, 255, .02);
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            padding: 20px;
+        }
+
+        .card:hover {
+            background: rgba(255, 255, 255, .04);
+        }
+
+        .card h3 {
+            font-size: 15px;
+            margin-bottom: 10px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .card p,
+        .card li {
+            font-size: 13px;
+            color: var(--text-secondary);
+            line-height: 1.6;
+        }
+
+        .card ul {
+            margin-left: 16px;
+            margin-top: 6px;
+        }
+
+        .tag {
+            font-family: 'Space Mono', monospace;
+            font-size: 9px;
+            letter-spacing: .08em;
+            padding: 2px 8px;
+            border-radius: 4px;
+            text-transform: uppercase;
+        }
+
+        .eq {
+            display: block;
+            background: #000;
+            border: 1px solid var(--border);
+            border-left: 3px solid var(--accent-purple);
+            padding: 10px;
+            border-radius: 4px;
+            font-family: 'Space Mono', monospace;
+            font-size: 11px;
+            color: var(--text-primary);
+            margin: 10px 0;
+            overflow-x: auto;
+        }
+
+        /* Table */
+        .spec-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 13px;
+        }
+
+        .spec-table th {
+            text-align: left;
+            padding: 8px 12px;
+            font-family: 'Space Mono', monospace;
+            font-size: 10px;
+            color: var(--text-dim);
+            letter-spacing: .1em;
+            text-transform: uppercase;
+            border-bottom: 1px solid var(--border);
+        }
+
+        .spec-table td {
+            padding: 10px 12px;
+            border-bottom: 1px solid rgba(30, 35, 48, .5);
+            vertical-align: top;
+        }
+
+        .spec-table td:first-child {
+            color: var(--text-secondary);
+        }
+
+        .spec-table td:nth-child(2) {
+            color: var(--accent-cyan);
+            font-weight: 500;
+        }
+
+        .spec-table tr:hover td {
+            background: rgba(255, 255, 255, .02);
+        }
+
+        @keyframes fadeUp {
+            from {
+                opacity: 0;
+                transform: translateY(20px);
+            }
+
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+    </style>
+</head>
+
+<body>
+    <div class="page">
+
+        <!-- HEADER -->
+        <header class="header">
+            <div class="header-tag">MRI → CT Synthesis Pipeline</div>
+            <h1>TriMamba-UNet V2</h1>
+            <div class="header-sub">Tri-Axial Bidirectional State Space Model with CBAM Attention, Deep Supervision, and
+                Multi-Stage Compound Loss for Brain MRI-to-CT Synthesis.</div>
+        </header>
+
+        <!-- STATS BAR -->
+        <div class="stats-bar">
+            <div class="stat">
+                <div class="stat-val" style="color:var(--accent-cyan)">~18M</div>
+                <div class="stat-label">Parameters</div>
+            </div>
+            <div class="stat">
+                <div class="stat-val" style="color:var(--accent-green)">32</div>
+                <div class="stat-label">Base Channels</div>
+            </div>
+            <div class="stat">
+                <div class="stat-val" style="color:var(--accent-amber)">1</div>
+                <div class="stat-label">Batch Size</div>
+            </div>
+            <div class="stat">
+                <div class="stat-val" style="color:var(--accent-purple)">500</div>
+                <div class="stat-label">Epochs</div>
+            </div>
+            <div class="stat">
+                <div class="stat-val" style="color:var(--accent-blue)">32×128×128</div>
+                <div class="stat-label">Patch Size (D×H×W)</div>
+            </div>
+            <div class="stat">
+                <div class="stat-val" style="color:var(--accent-rose)">~18-22h</div>
+                <div class="stat-label">Est. Training Time</div>
+            </div>
+        </div>
+
+        <!-- MAIN GRID: Architecture + Specs -->
+        <div class="grid-2">
+
+            <!-- LEFT: ARCHITECTURE DIAGRAM -->
+            <div class="section">
+                <div class="section-title"><span style="color:var(--accent-cyan)">■</span> Network Topology</div>
+                <div class="arch-flow">
+                    <div class="block block-io" style="text-align:center">
+                        <div class="block-label">Input: T2 MRI</div>
+                        <div class="block-detail">(B, 1, 32, 128, 128)</div>
+                    </div>
+                    <div class="connector"></div>
+
+                    <div
+                        style="font-family:'Space Mono';font-size:9px;color:var(--text-dim);margin:6px 0;letter-spacing:2px">
+                        ENCODER</div>
+
+                    <div class="res-tag">32 ch · full res</div>
+                    <div class="block block-conv">
+                        <div class="block-label">Stem: ConvNormAct × 2</div>
+                        <div class="block-detail">1 → 32 ch</div>
+                    </div>
+                    <div class="connector"></div>
+                    <div class="block block-mamba">
+                        <div class="block-label">Enc1: TriAxialMambaBlock</div>
+                        <div class="block-detail">6 SSMs (D↔ H↔ W↔) + Fusion</div>
+                        <div class="block-chip" style="background:rgba(34,197,94,.1);color:var(--accent-green)">skip→D1
+                        </div>
+                    </div>
+                    <div class="connector"></div>
+
+                    <div class="res-tag">64 ch · ½ res</div>
+                    <div class="block block-conv">
+                        <div class="block-label">Down: ConvNormAct stride=2</div>
+                        <div class="block-detail">32 → 64</div>
+                    </div>
+                    <div class="connector"></div>
+                    <div class="block block-mamba">
+                        <div class="block-label">Enc2: TriAxialMambaBlock</div>
+                        <div class="block-chip" style="background:rgba(34,197,94,.1);color:var(--accent-green)">skip→D2
+                        </div>
+                    </div>
+                    <div class="connector"></div>
+
+                    <div class="res-tag">128 ch · ¼ res</div>
+                    <div class="block block-conv">
+                        <div class="block-label">Down: ConvNormAct stride=2</div>
+                        <div class="block-detail">64 → 128</div>
+                    </div>
+                    <div class="connector"></div>
+                    <div class="block block-mamba">
+                        <div class="block-label">Enc3: TriAxialMambaBlock</div>
+                        <div class="block-chip" style="background:rgba(34,197,94,.1);color:var(--accent-green)">skip→D3
+                        </div>
+                    </div>
+                    <div class="connector"></div>
+
+                    <div class="res-tag" style="color:var(--accent-rose)">256 ch · ⅛ res</div>
+                    <div class="block block-conv">
+                        <div class="block-label">Down: ConvNormAct stride=2</div>
+                        <div class="block-detail">128 → 256</div>
+                    </div>
+                    <div class="connector"></div>
+                    <div class="block block-bn">
+                        <div class="block-label">Bottleneck: TriAxialMambaBlock</div>
+                        <div class="block-detail">Global context at max compression</div>
+                    </div>
+                    <div class="connector"></div>
+
+                    <div
+                        style="font-family:'Space Mono';font-size:9px;color:var(--text-dim);margin:6px 0;letter-spacing:2px">
+                        DECODER</div>
+
+                    <div class="res-tag" style="color:var(--accent-purple)">128 ch · ¼ res</div>
+                    <div class="block block-up">
+                        <div class="block-label">Trilinear Interpolate + Conv1×1</div>
+                        <div class="block-detail">256 → 128 (no checkerboard)</div>
+                    </div>
+                    <div class="connector"></div>
+                    <div class="block block-att">
+                        <div class="block-label">CBAM3D Gate on Enc3 Skip</div>
+                        <div class="block-detail">Channel + Spatial attention filter</div>
+                    </div>
+                    <div class="connector"></div>
+                    <div class="block block-mamba">
+                        <div class="block-label">Dec3: TriAxialMambaBlock</div>
+                        <div class="block-chip" style="background:rgba(244,63,94,.1);color:var(--accent-rose)">aux out ¼
+                        </div>
+                    </div>
+                    <div class="connector"></div>
+
+                    <div class="res-tag" style="color:var(--accent-purple)">64 ch · ½ res</div>
+                    <div class="block block-up">
+                        <div class="block-label">Trilinear Interpolate + Conv1×1</div>
+                    </div>
+                    <div class="connector"></div>
+                    <div class="block block-att">
+                        <div class="block-label">CBAM3D Gate on Enc2 Skip</div>
+                    </div>
+                    <div class="connector"></div>
+                    <div class="block block-mamba">
+                        <div class="block-label">Dec2: TriAxialMambaBlock</div>
+                        <div class="block-chip" style="background:rgba(244,63,94,.1);color:var(--accent-rose)">aux out ½
+                        </div>
+                    </div>
+                    <div class="connector"></div>
+
+                    <div class="res-tag" style="color:var(--accent-purple)">32 ch · full res</div>
+                    <div class="block block-up">
+                        <div class="block-label">Trilinear Interpolate + Conv1×1</div>
+                    </div>
+                    <div class="connector"></div>
+                    <div class="block block-att">
+                        <div class="block-label">CBAM3D Gate on Enc1 Skip</div>
+                    </div>
+                    <div class="connector"></div>
+                    <div class="block block-mamba">
+                        <div class="block-label">Dec1: TriAxialMambaBlock</div>
+                    </div>
+                    <div class="connector"></div>
+
+                    <div class="block block-io" style="text-align:center">
+                        <div class="block-label">Output: Conv1×1 → Tanh</div>
+                        <div class="block-detail">Synthetic CT in [-1, 1]</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- RIGHT: FULL SPEC TABLE -->
+            <div>
+                <div class="section">
+                    <div class="section-title"><span style="color:var(--accent-blue)">■</span> Training Configuration
+                    </div>
+                    <table class="spec-table">
+                        <thead>
+                            <tr>
+                                <th>Parameter</th>
+                                <th>Value</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr>
+                                <td>Model</td>
+                                <td>TriMamba-UNet V2</td>
+                            </tr>
+                            <tr>
+                                <td>Parameters</td>
+                                <td>~18M (base_ch=32)</td>
+                            </tr>
+                            <tr>
+                                <td>Input shape</td>
+                                <td>(B, 1, 32, 128, 128) — random 3D patch</td>
+                            </tr>
+                            <tr>
+                                <td>Output shape</td>
+                                <td>(B, 1, 32, 128, 128) — synthetic CT</td>
+                            </tr>
+                            <tr>
+                                <td>Batch size</td>
+                                <td>1 (3D volumes are large)</td>
+                            </tr>
+                            <tr>
+                                <td>Steps per epoch</td>
+                                <td>= number of training .npy files</td>
+                            </tr>
+                            <tr>
+                                <td>Total epochs</td>
+                                <td>500</td>
+                            </tr>
+                            <tr>
+                                <td>Optimizer</td>
+                                <td>AdamW (lr=2e-4, weight_decay=1e-4)</td>
+                            </tr>
+                            <tr>
+                                <td>LR Schedule</td>
+                                <td>CosineAnnealingWarmRestarts (T₀=50, T_mult=2)</td>
+                            </tr>
+                            <tr>
+                                <td>EMA</td>
+                                <td>Enabled at epoch 50 (decay=0.9999)</td>
+                            </tr>
+                            <tr>
+                                <td>Mixed Precision</td>
+                                <td>AMP (fp16) — halves activation memory</td>
+                            </tr>
+                            <tr>
+                                <td>Gradient Checkpointing</td>
+                                <td>ON — saves ~60% VRAM</td>
+                            </tr>
+                            <tr>
+                                <td>Grad Clipping</td>
+                                <td>max_norm=1.0</td>
+                            </tr>
+                            <tr>
+                                <td>Data augmentation</td>
+                                <td>Random 3D flips (D,H,W) + intensity jitter</td>
+                            </tr>
+                            <tr>
+                                <td>Est. VRAM</td>
+                                <td>~14-18 GB (fits 24GB with buffer)</td>
+                            </tr>
+                            <tr>
+                                <td>Est. training time</td>
+                                <td>~18-22 hours (500 epochs, RTX 4090/A5000)</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+
+                <div class="section">
+                    <div class="section-title"><span style="color:var(--accent-rose)">■</span> Evaluation Pipeline</div>
+                    <table class="spec-table">
+                        <thead>
+                            <tr>
+                                <th>Parameter</th>
+                                <th>Value</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr>
+                                <td>Inference method</td>
+                                <td>Sliding window (overlap=50%)</td>
+                            </tr>
+                            <tr>
+                                <td>Inference patch</td>
+                                <td>(32, 128, 128)</td>
+                            </tr>
+                            <tr>
+                                <td>TTA (optional)</td>
+                                <td>4× flips (D, H, W) averaged</td>
+                            </tr>
+                            <tr>
+                                <td>EMA checkpoint</td>
+                                <td>Separate best EMA model saved</td>
+                            </tr>
+                            <tr>
+                                <td>Metrics</td>
+                                <td>MAE, PSNR (dB), SSIM</td>
+                            </tr>
+                            <tr>
+                                <td>Data range</td>
+                                <td>[-1, 1] (data_range=2.0)</td>
+                            </tr>
+                            <tr>
+                                <td>Steps to evaluate</td>
+                                <td>= number of test .npy files</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <!-- DEEP DIVES -->
+        <div class="section">
+            <div class="section-title"><span style="color:var(--accent-purple)">■</span> Component Deep Dives</div>
+            <div class="grid-3">
+
+                <div class="card">
+                    <h3>TriAxial Bidirectional Scanning <span class="tag"
+                            style="background:rgba(0,229,200,.1);color:var(--accent-cyan)">Core SSM</span></h3>
+                    <p>The old MambaBlock3D flattened (B,C,D,H,W) → (B, D·H·W, C) creating 524K-token sequences that
+                        destroyed spatial locality.</p>
+                    <p style="margin-top:8px">TriAxial scans along <strong>3 axes × 2 directions = 6 SSM
+                            passes</strong>:</p>
+                    <ul>
+                        <li>D-axis: (B·H·W, D, C) — max 32 tokens</li>
+                        <li>H-axis: (B·D·W, H, C) — max 128 tokens</li>
+                        <li>W-axis: (B·D·H, W, C) — max 128 tokens</li>
+                    </ul>
+                    <p style="margin-top:8px">Outputs fused via 1×1×1 Conv (3C→C) + residual.</p>
+                </div>
+
+                <div class="card">
+                    <h3>CBAM3D Attention <span class="tag"
+                            style="background:rgba(245,158,11,.1);color:var(--accent-amber)">Skip Gates</span></h3>
+                    <p>Applied to encoder skip connections before decoder concatenation. Filters out noisy/irrelevant
+                        features.</p>
+                    <p style="margin-top:8px"><strong>Channel Attention:</strong> GlobalAvgPool + GlobalMaxPool → shared
+                        MLP → sigmoid gate per channel.</p>
+                    <p style="margin-top:8px"><strong>Spatial Attention:</strong> Channel-wise avg+max → Conv3d(2→1) →
+                        sigmoid gate per voxel.</p>
+                    <p style="margin-top:8px">Cost: negligible (~1K params each).</p>
+                </div>
+
+                <div class="card">
+                    <h3>V2 Loss Function <span class="tag"
+                            style="background:rgba(244,63,94,.1);color:var(--accent-rose)">3-Stage</span></h3>
+                    <p><strong>Stage 1 (ep 0–49):</strong> WeightedMAE only (warmup)</p>
+                    <p><strong>Stage 2 (ep 50–199):</strong> wMAE + SSIM + GradientLoss</p>
+                    <p><strong>Stage 3 (ep 200+):</strong> + FocalFrequencyLoss</p>
+                    <div class="eq">
+                        L = 1.0·wMAE + 0.2·SSIM + 0.05·Grad + 0.1·FFL<br>
+                        + 0.4·DS₂_loss + 0.2·DS₃_loss (deep sup)
+                    </div>
+                    <p>wMAE weights: bone(HU>300)=3×, soft=1.5×, air=0.5×</p>
+                </div>
+
+                <div class="card">
+                    <h3>GradientLoss <span class="tag"
+                            style="background:rgba(79,158,255,.1);color:var(--accent-blue)">Edge</span></h3>
+                    <p>Computes finite differences along D, H, W axes for both prediction and target, then penalizes the
+                        difference.</p>
+                    <div class="eq">L_grad = ⅓ · Σ_axis |∇pred - ∇target|</div>
+                    <p>Critical for sharp bone boundaries that L1 smooths out.</p>
+                </div>
+
+                <div class="card">
+                    <h3>FocalFrequencyLoss <span class="tag"
+                            style="background:rgba(168,85,247,.1);color:var(--accent-purple)">FFT</span></h3>
+                    <p>Converts pred/target to frequency domain via 3D rFFT. Adaptively weights frequencies where the
+                        error is largest.</p>
+                    <div class="eq">L_ffl = E[ w(f) · |F(pred) - F(target)| ]<br>w(f) = |F(pred)-F(target)|^α / mean
+                    </div>
+                    <p>Recovers high-frequency textures that standard L1/SSIM miss. (ICCV 2021)</p>
+                </div>
+
+                <div class="card">
+                    <h3>Memory Optimizations <span class="tag"
+                            style="background:rgba(34,197,94,.1);color:var(--accent-green)">VRAM</span></h3>
+                    <ul>
+                        <li><strong>Gradient Checkpointing</strong> on all 8 TriMambaEncoderBlocks — recomputes
+                            activations during backward, saves ~60% VRAM</li>
+                        <li><strong>AMP (fp16)</strong> — halves activation memory</li>
+                        <li><strong>Sequential axis processing</strong> with explicit <code>del</code> statements</li>
+                        <li><strong>zero_grad(set_to_none=True)</strong> — avoids gradient zero-fill</li>
+                        <li><strong>Aggressive freeing</strong> of encoder features in decoder</li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+
+        <!-- DATA PIPELINE -->
+        <div class="section">
+            <div class="section-title"><span style="color:var(--accent-green)">■</span> Data Pipeline</div>
+            <div class="grid-3">
+                <div class="card">
+                    <h3>Input Format</h3>
+                    <p>Each <code>.npy</code> file: shape <strong>(2, 192, 192, 96)</strong></p>
+                    <ul>
+                        <li>Channel 0: T2 MRI (normalized [-1, 1])</li>
+                        <li>Channel 1: CT ground truth (normalized [-1, 1])</li>
+                        <li>HU clip range: [-1024, 1500]</li>
+                    </ul>
+                </div>
+                <div class="card">
+                    <h3>Training Augmentation</h3>
+                    <ul>
+                        <li>Random 3D patch extraction (32×128×128)</li>
+                        <li>Random flip along D axis (50%)</li>
+                        <li>Random flip along H axis (50%)</li>
+                        <li>Random flip along W axis (50%)</li>
+                        <li>Intensity jitter ±0.03 on MRI (50%)</li>
+                    </ul>
+                </div>
+                <div class="card">
+                    <h3>Data Splits</h3>
+                    <p>Directory: <code>/DATA/divyansh/mc_ddpm_data/brain_npy/</code></p>
+                    <ul>
+                        <li><code>imagesTr/</code> — training set</li>
+                        <li><code>imagesVal/</code> — validation set</li>
+                        <li><code>imagesTs/</code> — test set</li>
+                    </ul>
+                    <p style="margin-top:6px">Val/Test use full volume (96×192×192), no patching.</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- TRAINING TIMELINE -->
+        <div class="section">
+            <div class="section-title"><span style="color:var(--accent-amber)">■</span> Training Timeline</div>
+            <div class="grid-3">
+                <div class="card">
+                    <h3 style="color:var(--accent-green)">Phase 1: Warmup (ep 0–49)</h3>
+                    <ul>
+                        <li>Loss: WeightedMAE only</li>
+                        <li>LR: cosine from 2e-4</li>
+                        <li>No EMA, no SSIM/Grad losses</li>
+                        <li>Model learns coarse intensity mapping</li>
+                    </ul>
+                </div>
+                <div class="card">
+                    <h3 style="color:var(--accent-amber)">Phase 2: Refinement (ep 50–199)</h3>
+                    <ul>
+                        <li>Loss: wMAE + SSIM + GradientLoss</li>
+                        <li>EMA tracking begins (decay=0.9999)</li>
+                        <li>Deep supervision activated (aux heads)</li>
+                        <li>Model learns structure + edges</li>
+                    </ul>
+                </div>
+                <div class="card">
+                    <h3 style="color:var(--accent-rose)">Phase 3: Fine-tuning (ep 200–500)</h3>
+                    <ul>
+                        <li>Loss: + FocalFrequencyLoss</li>
+                        <li>High-frequency detail recovery</li>
+                        <li>Bone boundary refinement</li>
+                        <li>Best model saved by lowest val MAE</li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+
+    </div>
+</body>
+
+</html>

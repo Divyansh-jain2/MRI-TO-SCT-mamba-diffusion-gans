@@ -1,0 +1,1129 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Mamba Architecture — MRI-to-CT Synthesis</title>
+    <link
+        href="[https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=DM+Sans:wght@300;400;500;600&display=swap](https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=DM+Sans:wght@300;400;500;600&display=swap)"
+        rel="stylesheet">
+    <style>
+        :root {
+            --bg: #0a0c10;
+            --surface: #111318;
+            --border: #1e2330;
+            --accent-blue: #4f9eff;
+            --accent-cyan: #00e5c8;
+            --accent-purple: #a855f7;
+            --accent-amber: #f59e0b;
+            --accent-rose: #f43f5e;
+            --accent-green: #22c55e;
+            --text-primary: #e8ecf4;
+            --text-secondary: #6b7a99;
+            --text-dim: #3d4a66;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            background: var(--bg);
+            color: var(--text-primary);
+            font-family: 'DM Sans', sans-serif;
+            min-height: 100vh;
+            overflow-x: hidden;
+        }
+
+        /* Noise texture overlay */
+        body::before {
+            content: '';
+            position: fixed;
+            inset: 0;
+            background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='[http://www.w3.org/2000/svg'%3E%3Cfilter](http://www.w3.org/2000/svg'%3E%3Cfilter) id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)' opacity='0.04'/%3E%3C/svg%3E");
+            pointer-events: none;
+            z-index: 0;
+        }
+
+        .page {
+            position: relative;
+            z-index: 1;
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 48px 32px;
+        }
+
+        /* Header */
+        .header {
+            text-align: center;
+            margin-bottom: 64px;
+            animation: fadeUp 0.6s ease both;
+        }
+
+        .header-eyebrow {
+            font-family: 'Space Mono', monospace;
+            font-size: 11px;
+            letter-spacing: 0.25em;
+            color: var(--accent-cyan);
+            text-transform: uppercase;
+            margin-bottom: 16px;
+        }
+
+        .header h1 {
+            font-size: clamp(28px, 4vw, 48px);
+            font-weight: 600;
+            letter-spacing: -0.02em;
+            line-height: 1.1;
+            background: linear-gradient(135deg, #e8ecf4 30%, var(--accent-blue) 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        .header-sub {
+            margin-top: 12px;
+            color: var(--text-secondary);
+            font-size: 15px;
+            font-weight: 300;
+        }
+
+        /* Legend */
+        .legend {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 16px;
+            justify-content: center;
+            margin-bottom: 56px;
+            animation: fadeUp 0.6s 0.1s ease both;
+        }
+
+        .legend-item {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-family: 'Space Mono', monospace;
+            font-size: 11px;
+            color: var(--text-secondary);
+        }
+
+        .legend-dot {
+            width: 10px;
+            height: 10px;
+            border-radius: 2px;
+        }
+
+        /* Architecture grid */
+        .arch-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 32px;
+            margin-bottom: 48px;
+        }
+
+        @media (max-width: 900px) {
+            .arch-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        .arch-panel {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 16px;
+            overflow: hidden;
+            animation: fadeUp 0.6s ease both;
+        }
+
+        .arch-panel:nth-child(2) {
+            animation-delay: 0.15s;
+        }
+
+        .panel-header {
+            padding: 20px 28px;
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            align-items: center;
+            gap: 16px;
+        }
+
+        .panel-badge {
+            font-family: 'Space Mono', monospace;
+            font-size: 10px;
+            letter-spacing: 0.15em;
+            padding: 4px 10px;
+            border-radius: 4px;
+            text-transform: uppercase;
+        }
+
+        .badge-segmamba {
+            background: rgba(79, 158, 255, 0.1);
+            color: var(--accent-blue);
+            border: 1px solid rgba(79, 158, 255, 0.25);
+        }
+
+        .badge-umamba {
+            background: rgba(168, 85, 247, 0.1);
+            color: var(--accent-purple);
+            border: 1px solid rgba(168, 85, 247, 0.25);
+        }
+
+        .panel-title {
+            font-size: 18px;
+            font-weight: 600;
+            letter-spacing: -0.01em;
+        }
+
+        .panel-params {
+            margin-left: auto;
+            font-family: 'Space Mono', monospace;
+            font-size: 10px;
+            color: var(--text-secondary);
+        }
+
+        .panel-body {
+            padding: 32px 28px;
+        }
+
+        /* Architecture flow */
+        .arch-flow {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 0;
+        }
+
+        /* Sections */
+        .section-label {
+            font-family: 'Space Mono', monospace;
+            font-size: 9px;
+            letter-spacing: 0.2em;
+            text-transform: uppercase;
+            color: var(--text-dim);
+            margin-bottom: 12px;
+            text-align: center;
+        }
+
+        /* Arrow connector */
+        .connector {
+            width: 2px;
+            height: 20px;
+            position: relative;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .connector::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 1px;
+            height: 100%;
+            background: var(--border);
+        }
+
+        .connector::after {
+            content: '▼';
+            font-size: 8px;
+            color: var(--text-dim);
+            position: absolute;
+            bottom: -2px;
+        }
+
+        .connector.skip-indicator {
+            position: relative;
+        }
+
+        /* Blocks */
+        .block {
+            width: 100%;
+            border-radius: 10px;
+            padding: 12px 16px;
+            border: 1px solid;
+            position: relative;
+            transition: transform 0.2s ease, box-shadow 0.2s ease;
+            cursor: default;
+        }
+
+        .block:hover {
+            transform: translateX(4px);
+            box-shadow: -4px 0 0 currentColor;
+        }
+
+        .block-label {
+            font-size: 13px;
+            font-weight: 500;
+            margin-bottom: 2px;
+        }
+
+        .block-detail {
+            font-family: 'Space Mono', monospace;
+            font-size: 10px;
+            opacity: 0.65;
+        }
+
+        .block-chip {
+            position: absolute;
+            right: 12px;
+            top: 50%;
+            transform: translateY(-50%);
+            font-family: 'Space Mono', monospace;
+            font-size: 9px;
+            padding: 2px 7px;
+            border-radius: 3px;
+        }
+
+        /* Block color variants */
+        .block-input {
+            background: rgba(34, 197, 94, 0.06);
+            border-color: rgba(34, 197, 94, 0.25);
+            color: var(--accent-green);
+        }
+
+        .block-input .block-chip {
+            background: rgba(34, 197, 94, 0.12);
+            color: var(--accent-green);
+        }
+
+        .block-conv {
+            background: rgba(79, 158, 255, 0.06);
+            border-color: rgba(79, 158, 255, 0.2);
+            color: var(--accent-blue);
+        }
+
+        .block-conv .block-chip {
+            background: rgba(79, 158, 255, 0.1);
+            color: var(--accent-blue);
+        }
+
+        .block-mamba {
+            background: rgba(0, 229, 200, 0.06);
+            border-color: rgba(0, 229, 200, 0.25);
+            color: var(--accent-cyan);
+        }
+
+        .block-mamba .block-chip {
+            background: rgba(0, 229, 200, 0.1);
+            color: var(--accent-cyan);
+        }
+
+        .block-res {
+            background: rgba(245, 158, 11, 0.06);
+            border-color: rgba(245, 158, 11, 0.2);
+            color: var(--accent-amber);
+        }
+
+        .block-res .block-chip {
+            background: rgba(245, 158, 11, 0.1);
+            color: var(--accent-amber);
+        }
+
+        .block-bottleneck {
+            background: rgba(244, 63, 94, 0.08);
+            border-color: rgba(244, 63, 94, 0.3);
+            color: var(--accent-rose);
+        }
+
+        .block-bottleneck .block-chip {
+            background: rgba(244, 63, 94, 0.12);
+            color: var(--accent-rose);
+        }
+
+        .block-up {
+            background: rgba(168, 85, 247, 0.06);
+            border-color: rgba(168, 85, 247, 0.2);
+            color: var(--accent-purple);
+        }
+
+        .block-up .block-chip {
+            background: rgba(168, 85, 247, 0.1);
+            color: var(--accent-purple);
+        }
+
+        .block-output {
+            background: rgba(34, 197, 94, 0.06);
+            border-color: rgba(34, 197, 94, 0.25);
+            color: var(--accent-green);
+        }
+
+        /* Encoder/Decoder stages */
+        .stage-group {
+            width: 100%;
+            position: relative;
+        }
+
+        .stage-wrapper {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+            width: 100%;
+        }
+
+        /* Skip connection visual */
+        .skip-row {
+            display: flex;
+            align-items: center;
+            gap: 0;
+            width: 100%;
+            position: relative;
+        }
+
+        .skip-row .block {
+            flex: 1;
+        }
+
+        .skip-line {
+            position: absolute;
+            right: -16px;
+            top: 50%;
+            display: flex;
+            align-items: center;
+        }
+
+        /* Resolution badges on stages */
+        .res-tag {
+            font-family: 'Space Mono', monospace;
+            font-size: 9px;
+            color: var(--text-dim);
+            text-align: right;
+            margin-bottom: 4px;
+            padding-right: 2px;
+        }
+
+        /* Divider */
+        .arch-divider {
+            width: 100%;
+            text-align: center;
+            font-family: 'Space Mono', monospace;
+            font-size: 9px;
+            color: var(--text-dim);
+            letter-spacing: 0.15em;
+            padding: 8px 0;
+            position: relative;
+        }
+
+        .arch-divider::before,
+        .arch-divider::after {
+            content: '';
+            position: absolute;
+            top: 50%;
+            width: 30%;
+            height: 1px;
+            background: var(--border);
+        }
+
+        .arch-divider::before {
+            left: 0;
+        }
+
+        .arch-divider::after {
+            right: 0;
+        }
+
+        /* Skip connections diagram (side panel) */
+        .skip-diagram {
+            margin-top: 8px;
+            padding: 16px;
+            background: rgba(255, 255, 255, 0.02);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            font-family: 'Space Mono', monospace;
+            font-size: 10px;
+            color: var(--text-secondary);
+        }
+
+        .skip-diagram pre {
+            line-height: 1.7;
+            overflow-x: auto;
+        }
+
+        /* Comparison table */
+        .comparison {
+            margin-top: 32px;
+            animation: fadeUp 0.6s 0.3s ease both;
+        }
+
+        .comp-title {
+            font-family: 'Space Mono', monospace;
+            font-size: 11px;
+            letter-spacing: 0.2em;
+            text-transform: uppercase;
+            color: var(--text-secondary);
+            margin-bottom: 20px;
+            text-align: center;
+        }
+
+        .comp-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 13px;
+        }
+
+        .comp-table th {
+            padding: 10px 20px;
+            text-align: left;
+            font-family: 'Space Mono', monospace;
+            font-size: 10px;
+            letter-spacing: 0.1em;
+            color: var(--text-dim);
+            text-transform: uppercase;
+            border-bottom: 1px solid var(--border);
+        }
+
+        .comp-table td {
+            padding: 12px 20px;
+            border-bottom: 1px solid rgba(30, 35, 48, 0.5);
+            font-size: 13px;
+            vertical-align: top;
+        }
+
+        .comp-table tr:last-child td {
+            border-bottom: none;
+        }
+
+        .comp-table tr:hover td {
+            background: rgba(255, 255, 255, 0.02);
+        }
+
+        .td-seg {
+            color: var(--accent-blue);
+            font-weight: 500;
+        }
+
+        .td-uma {
+            color: var(--accent-purple);
+            font-weight: 500;
+        }
+
+        .td-feat {
+            color: var(--text-primary);
+        }
+
+        .td-note {
+            color: var(--text-secondary);
+            font-size: 12px;
+        }
+
+        .tag-shared {
+            display: inline-block;
+            background: rgba(34, 197, 94, 0.1);
+            color: var(--accent-green);
+            font-family: 'Space Mono', monospace;
+            font-size: 9px;
+            padding: 2px 7px;
+            border-radius: 3px;
+            vertical-align: middle;
+            margin-left: 6px;
+        }
+
+        /* Mamba explainer */
+        .mamba-detail {
+            margin-top: 32px;
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 16px;
+            padding: 32px;
+            animation: fadeUp 0.6s 0.4s ease both;
+        }
+
+        .mamba-detail-title {
+            font-family: 'Space Mono', monospace;
+            font-size: 11px;
+            letter-spacing: 0.2em;
+            color: var(--accent-cyan);
+            text-transform: uppercase;
+            margin-bottom: 24px;
+        }
+
+        .mamba-steps {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+            gap: 16px;
+        }
+
+        .mamba-step {
+            padding: 16px;
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            position: relative;
+        }
+
+        .step-num {
+            font-family: 'Space Mono', monospace;
+            font-size: 28px;
+            font-weight: 700;
+            color: var(--text-dim);
+            line-height: 1;
+            margin-bottom: 8px;
+        }
+
+        .step-title {
+            font-size: 13px;
+            font-weight: 600;
+            margin-bottom: 4px;
+            color: var(--accent-cyan);
+        }
+
+        .step-desc {
+            font-size: 12px;
+            color: var(--text-secondary);
+            line-height: 1.5;
+        }
+
+        .step-code {
+            margin-top: 8px;
+            font-family: 'Space Mono', monospace;
+            font-size: 9px;
+            color: var(--text-dim);
+            background: rgba(0, 0, 0, 0.3);
+            padding: 6px 8px;
+            border-radius: 4px;
+        }
+
+        /* Arrow between steps */
+        .step-arrow {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: var(--text-dim);
+            font-size: 18px;
+            padding-top: 24px;
+        }
+
+        @keyframes fadeUp {
+            from {
+                opacity: 0;
+                transform: translateY(20px);
+            }
+
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        /* Stage bracket labels */
+        .stage-bracket {
+            writing-mode: vertical-rl;
+            text-orientation: mixed;
+            font-family: 'Space Mono', monospace;
+            font-size: 8px;
+            letter-spacing: 0.2em;
+            text-transform: uppercase;
+            color: var(--text-dim);
+            padding: 0 6px;
+            border-right: 1px solid var(--border);
+            margin-right: 12px;
+        }
+
+        .encoder-bracket {
+            color: rgba(79, 158, 255, 0.4);
+            border-color: rgba(79, 158, 255, 0.15);
+        }
+
+        .decoder-bracket {
+            color: rgba(168, 85, 247, 0.4);
+            border-color: rgba(168, 85, 247, 0.15);
+        }
+
+        /* Full layout with brackets */
+        .flow-with-labels {
+            display: flex;
+            align-items: stretch;
+            gap: 0;
+            width: 100%;
+        }
+
+        .flow-main {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 0;
+        }
+
+        /* Glow effects */
+        .block-mamba {
+            box-shadow: 0 0 0 0 rgba(0, 229, 200, 0);
+            transition: all 0.3s ease;
+        }
+
+        .block-mamba:hover {
+            box-shadow: 0 0 16px rgba(0, 229, 200, 0.12);
+        }
+
+        .block-bottleneck:hover {
+            box-shadow: 0 0 16px rgba(244, 63, 94, 0.15);
+        }
+    </style>
+
+</head>
+
+<body>
+    <div class="page">
+
+        <div class="header">
+            <div class="header-eyebrow">MRI → CT Synthesis · Neural Architecture</div>
+            <h1>SegMamba & U-Mamba<br>Architecture Deep Dive</h1>
+            <div class="header-sub">Selective State Space Models for 3D Medical Image Synthesis · 13.3M Parameters Each
+            </div>
+        </div>
+
+        <div class="legend">
+            <div class="legend-item">
+                <div class="legend-dot" style="background:#22c55e"></div>Input / Output
+            </div>
+            <div class="legend-item">
+                <div class="legend-dot" style="background:#4f9eff"></div>ConvNormAct (Conv3d + InstanceNorm + LeakyReLU)
+            </div>
+            <div class="legend-item">
+                <div class="legend-dot" style="background:#f59e0b"></div>ResConvBlock (Residual)
+            </div>
+            <div class="legend-item">
+                <div class="legend-dot" style="background:#00e5c8"></div>MambaBlock3D (SSM)
+            </div>
+            <div class="legend-item">
+                <div class="legend-dot" style="background:#f43f5e"></div>Bottleneck
+            </div>
+            <div class="legend-item">
+                <div class="legend-dot" style="background:#a855f7"></div>Upsample + Skip Concat
+            </div>
+        </div>
+
+        <div class="arch-grid">
+
+            <div class="arch-panel">
+                <div class="panel-header">
+                    <div class="panel-badge badge-segmamba">Model A</div>
+                    <div class="panel-title">SegMamba</div>
+                    <div class="panel-params">13.3M params · base_ch=32</div>
+                </div>
+                <div class="panel-body">
+                    <div class="arch-flow">
+
+                        <div class="block block-input" style="text-align:center">
+                            <div class="block-label">Input MRI Patch</div>
+                            <div class="block-detail">shape: (B, 1, 32, 128, 128)</div>
+                        </div>
+                        <div class="connector"></div>
+
+                        <div class="section-label" style="color:rgba(79,158,255,0.5)">── ENCODER ──</div>
+
+                        <div class="res-tag">full res · 32 ch</div>
+                        <div class="stage-wrapper">
+                            <div class="block block-conv">
+                                <div class="block-label">ConvNormAct</div>
+                                <div class="block-detail">1→32 ch, kernel 3, stride 1</div>
+                                <div class="block-chip">Stage 1</div>
+                            </div>
+                            <div class="block block-mamba">
+                                <div class="block-label">MambaBlock3D</div>
+                                <div class="block-detail">flatten → SSM → reshape</div>
+                            </div>
+                        </div>
+                        <div class="connector"></div>
+
+                        <div class="res-tag">½ res · 64 ch</div>
+                        <div class="stage-wrapper">
+                            <div class="block block-conv">
+                                <div class="block-label">ConvNormAct (stride 2)</div>
+                                <div class="block-detail">32→64 ch · downsample ×2</div>
+                                <div class="block-chip">Stage 2</div>
+                            </div>
+                            <div class="block block-res">
+                                <div class="block-label">ResConvBlock</div>
+                                <div class="block-detail">64 ch · skip: x + f(x)</div>
+                            </div>
+                            <div class="block block-mamba">
+                                <div class="block-label">MambaBlock3D</div>
+                                <div class="block-detail">long-range 64-ch sequence</div>
+                            </div>
+                        </div>
+                        <div class="connector"></div>
+
+                        <div class="res-tag">¼ res · 128 ch</div>
+                        <div class="stage-wrapper">
+                            <div class="block block-conv">
+                                <div class="block-label">ConvNormAct (stride 2)</div>
+                                <div class="block-detail">64→128 ch · downsample ×2</div>
+                                <div class="block-chip">Stage 3</div>
+                            </div>
+                            <div class="block block-res">
+                                <div class="block-label">ResConvBlock</div>
+                                <div class="block-detail">128 ch · residual</div>
+                            </div>
+                            <div class="block block-mamba">
+                                <div class="block-label">MambaBlock3D</div>
+                                <div class="block-detail">long-range 128-ch sequence</div>
+                            </div>
+                        </div>
+                        <div class="connector"></div>
+
+                        <div class="res-tag" style="color:rgba(244,63,94,0.5)">⅛ res · 256 ch</div>
+                        <div class="stage-wrapper">
+                            <div class="block block-conv">
+                                <div class="block-label">ConvNormAct (stride 2)</div>
+                                <div class="block-detail">128→256 ch · downsample ×2</div>
+                            </div>
+                            <div class="block block-res">
+                                <div class="block-label">ResConvBlock</div>
+                                <div class="block-detail">256 ch · residual</div>
+                            </div>
+                            <div class="block block-bottleneck">
+                                <div class="block-label">MambaBlock3D — Bottleneck</div>
+                                <div class="block-detail">most compressed · max context</div>
+                            </div>
+                        </div>
+                        <div class="connector"></div>
+
+                        <div class="section-label" style="color:rgba(168,85,247,0.5)">── DECODER ──</div>
+
+                        <div class="res-tag" style="color:rgba(168,85,247,0.4)">¼ res · 128 ch</div>
+                        <div class="stage-wrapper">
+                            <div class="block block-up">
+                                <div class="block-label">ConvTranspose3d (×2) + Skip Cat</div>
+                                <div class="block-detail">256→128 ch · concat enc-stage-3 skip</div>
+                                <div class="block-chip">Decode 3</div>
+                            </div>
+                            <div class="block block-res">
+                                <div class="block-label">ResConvBlock + MambaBlock3D</div>
+                                <div class="block-detail">128 ch · refine features</div>
+                            </div>
+                        </div>
+                        <div class="connector"></div>
+
+                        <div class="res-tag" style="color:rgba(168,85,247,0.4)">½ res · 64 ch</div>
+                        <div class="stage-wrapper">
+                            <div class="block block-up">
+                                <div class="block-label">ConvTranspose3d (×2) + Skip Cat</div>
+                                <div class="block-detail">128→64 ch · concat enc-stage-2 skip</div>
+                                <div class="block-chip">Decode 2</div>
+                            </div>
+                            <div class="block block-res">
+                                <div class="block-label">ResConvBlock + MambaBlock3D</div>
+                                <div class="block-detail">64 ch · refine features</div>
+                            </div>
+                        </div>
+                        <div class="connector"></div>
+
+                        <div class="res-tag" style="color:rgba(168,85,247,0.4)">full res · 32 ch</div>
+                        <div class="stage-wrapper">
+                            <div class="block block-up">
+                                <div class="block-label">ConvTranspose3d (×2) + Skip Cat</div>
+                                <div class="block-detail">64→32 ch · concat enc-stage-1 skip</div>
+                                <div class="block-chip">Decode 1</div>
+                            </div>
+                            <div class="block block-res">
+                                <div class="block-label">ConvNormAct</div>
+                                <div class="block-detail">32 ch · final refinement</div>
+                            </div>
+                        </div>
+                        <div class="connector"></div>
+
+                        <div class="section-label">── OUTPUT HEAD ──</div>
+                        <div class="stage-wrapper">
+                            <div class="block block-conv">
+                                <div class="block-label">Conv3d 1×1×1</div>
+                                <div class="block-detail">32→1 ch · point-wise projection</div>
+                            </div>
+                            <div class="block block-output">
+                                <div class="block-label">Tanh</div>
+                                <div class="block-detail">squash to [-1, 1]</div>
+                            </div>
+                        </div>
+                        <div class="connector"></div>
+
+                        <div class="block block-input" style="text-align:center">
+                            <div class="block-label">Synthetic CT Patch</div>
+                            <div class="block-detail">shape: (B, 1, 32, 128, 128)</div>
+                        </div>
+
+                    </div>
+                </div>
+            </div>
+
+            <div class="arch-panel">
+                <div class="panel-header">
+                    <div class="panel-badge badge-umamba">Model B</div>
+                    <div class="panel-title">U-Mamba</div>
+                    <div class="panel-params">13.3M params · base_ch=32</div>
+                </div>
+                <div class="panel-body">
+                    <div class="arch-flow">
+
+                        <div class="block block-input" style="text-align:center">
+                            <div class="block-label">Input MRI Patch</div>
+                            <div class="block-detail">shape: (B, 1, 32, 128, 128)</div>
+                        </div>
+                        <div class="connector"></div>
+
+                        <div class="section-label" style="color:rgba(245,158,11,0.5)">── STEM (unique to U-Mamba) ──
+                        </div>
+                        <div class="stage-wrapper">
+                            <div class="block block-res">
+                                <div class="block-label">Stem: ConvNormAct ×2</div>
+                                <div class="block-detail">1→32 ch · initial feature extraction</div>
+                                <div class="block-chip">nnU-Net</div>
+                            </div>
+                        </div>
+                        <div class="connector"></div>
+
+                        <div class="section-label" style="color:rgba(79,158,255,0.5)">── ENCODER ──</div>
+
+                        <div class="res-tag">full res · 32 ch</div>
+                        <div class="stage-wrapper">
+                            <div class="block block-res">
+                                <div class="block-label">UMambaBlock</div>
+                                <div class="block-detail">ResConvBlock → MambaBlock3D → InstanceNorm</div>
+                                <div class="block-chip">Stage 1</div>
+                            </div>
+                        </div>
+                        <div class="connector"></div>
+
+                        <div class="res-tag">½ res · 64 ch</div>
+                        <div class="stage-wrapper">
+                            <div class="block block-conv">
+                                <div class="block-label">ConvNormAct (stride 2)</div>
+                                <div class="block-detail">32→64 ch · downsample ×2</div>
+                            </div>
+                            <div class="block block-res"
+                                style="border-color:rgba(0,229,200,0.25);background:rgba(0,229,200,0.04);color:var(--accent-cyan)">
+                                <div class="block-label">UMambaBlock</div>
+                                <div class="block-detail">ResConvBlock → MambaBlock3D → InstanceNorm</div>
+                                <div class="block-chip" style="background:rgba(0,229,200,0.1);color:var(--accent-cyan)">
+                                    Stage 2</div>
+                            </div>
+                        </div>
+                        <div class="connector"></div>
+
+                        <div class="res-tag">¼ res · 128 ch</div>
+                        <div class="stage-wrapper">
+                            <div class="block block-conv">
+                                <div class="block-label">ConvNormAct (stride 2)</div>
+                                <div class="block-detail">64→128 ch · downsample ×2</div>
+                            </div>
+                            <div class="block block-res"
+                                style="border-color:rgba(0,229,200,0.25);background:rgba(0,229,200,0.04);color:var(--accent-cyan)">
+                                <div class="block-label">UMambaBlock</div>
+                                <div class="block-detail">ResConvBlock → MambaBlock3D → InstanceNorm</div>
+                                <div class="block-chip" style="background:rgba(0,229,200,0.1);color:var(--accent-cyan)">
+                                    Stage 3</div>
+                            </div>
+                        </div>
+                        <div class="connector"></div>
+
+                        <div class="res-tag" style="color:rgba(244,63,94,0.5)">⅛ res · 256 ch</div>
+                        <div class="stage-wrapper">
+                            <div class="block block-conv">
+                                <div class="block-label">ConvNormAct (stride 2)</div>
+                                <div class="block-detail">128→256 ch · downsample ×2</div>
+                            </div>
+                            <div class="block block-bottleneck">
+                                <div class="block-label">UMambaBlock — Bottleneck</div>
+                                <div class="block-detail">ResConv → SSM → InstanceNorm · most compressed</div>
+                            </div>
+                        </div>
+                        <div class="connector"></div>
+
+                        <div class="section-label" style="color:rgba(168,85,247,0.5)">── DECODER ──</div>
+
+                        <div class="res-tag" style="color:rgba(168,85,247,0.4)">¼ res · 128 ch</div>
+                        <div class="stage-wrapper">
+                            <div class="block block-up">
+                                <div class="block-label">ConvTranspose3d (×2) + Skip Cat</div>
+                                <div class="block-detail">256→128 ch · concat enc-stage-3</div>
+                                <div class="block-chip">Decode 3</div>
+                            </div>
+                            <div class="block block-res"
+                                style="border-color:rgba(0,229,200,0.2);background:rgba(0,229,200,0.03);color:var(--accent-cyan)">
+                                <div class="block-label">UMambaBlock</div>
+                                <div class="block-detail">ResConvBlock → MambaBlock3D → InstanceNorm</div>
+                            </div>
+                        </div>
+                        <div class="connector"></div>
+
+                        <div class="res-tag" style="color:rgba(168,85,247,0.4)">½ res · 64 ch</div>
+                        <div class="stage-wrapper">
+                            <div class="block block-up">
+                                <div class="block-label">ConvTranspose3d (×2) + Skip Cat</div>
+                                <div class="block-detail">128→64 ch · concat enc-stage-2</div>
+                                <div class="block-chip">Decode 2</div>
+                            </div>
+                            <div class="block block-res"
+                                style="border-color:rgba(0,229,200,0.2);background:rgba(0,229,200,0.03);color:var(--accent-cyan)">
+                                <div class="block-label">UMambaBlock</div>
+                                <div class="block-detail">ResConvBlock → MambaBlock3D → InstanceNorm</div>
+                            </div>
+                        </div>
+                        <div class="connector"></div>
+
+                        <div class="res-tag" style="color:rgba(168,85,247,0.4)">full res · 32 ch</div>
+                        <div class="stage-wrapper">
+                            <div class="block block-up">
+                                <div class="block-label">ConvTranspose3d (×2) + Skip Cat</div>
+                                <div class="block-detail">64→32 ch · concat enc-stage-1</div>
+                                <div class="block-chip">Decode 1</div>
+                            </div>
+                            <div class="block block-res"
+                                style="border-color:rgba(0,229,200,0.2);background:rgba(0,229,200,0.03);color:var(--accent-cyan)">
+                                <div class="block-label">UMambaBlock</div>
+                                <div class="block-detail">ResConvBlock → MambaBlock3D → InstanceNorm</div>
+                            </div>
+                        </div>
+                        <div class="connector"></div>
+
+                        <div class="section-label">── OUTPUT HEAD ──</div>
+                        <div class="stage-wrapper">
+                            <div class="block block-conv">
+                                <div class="block-label">Conv3d 1×1×1</div>
+                                <div class="block-detail">32→1 ch · point-wise projection</div>
+                            </div>
+                            <div class="block block-output">
+                                <div class="block-label">Tanh</div>
+                                <div class="block-detail">squash to [-1, 1]</div>
+                            </div>
+                        </div>
+                        <div class="connector"></div>
+
+                        <div class="block block-input" style="text-align:center">
+                            <div class="block-label">Synthetic CT Patch</div>
+                            <div class="block-detail">shape: (B, 1, 32, 128, 128)</div>
+                        </div>
+
+                    </div>
+                </div>
+            </div>
+
+        </div>
+        <div class="mamba-detail">
+            <div class="mamba-detail-title">MambaBlock3D — Inner Mechanism (shared by both models)</div>
+            <div class="mamba-steps">
+
+                <div class="mamba-step">
+                    <div class="step-num">01</div>
+                    <div class="step-title">Flatten Spatial</div>
+                    <div class="step-desc">3D volume reshaped into a 1D token sequence. Each voxel position becomes one
+                        token.</div>
+                    <div class="step-code">(B,C,D,H,W)<br>→ (B, D·H·W, C)</div>
+                </div>
+
+                <div class="mamba-step">
+                    <div class="step-num">02</div>
+                    <div class="step-title">LayerNorm</div>
+                    <div class="step-desc">Normalize each token's features for stable training.</div>
+                    <div class="step-code">x_norm = LayerNorm(x_flat)</div>
+                </div>
+
+                <div class="mamba-step">
+                    <div class="step-num">03</div>
+                    <div class="step-title">Selective SSM</div>
+                    <div class="step-desc">Mamba processes the sequence. Input-dependent gates decide what to remember
+                        vs. forget — linear O(N) cost.</div>
+                    <div class="step-code">h(t) = A·h(t-1) + B·x(t)<br>y(t) = C·h(t)<br>A,B,C = f(input)</div>
+                </div>
+
+                <div class="mamba-step">
+                    <div class="step-num">04</div>
+                    <div class="step-title">Linear Projection</div>
+                    <div class="step-desc">Map SSM output back to channel dimension via a learned linear layer.</div>
+                    <div class="step-code">x_out = Linear(x_ssm)</div>
+                </div>
+
+                <div class="mamba-step">
+                    <div class="step-num">05</div>
+                    <div class="step-title">Residual Add</div>
+                    <div class="step-desc">Add original input (before SSM) to the output. Gradient highway for deep
+                        networks.</div>
+                    <div class="step-code">x_out = x_out + residual</div>
+                </div>
+
+                <div class="mamba-step">
+                    <div class="step-num">06</div>
+                    <div class="step-title">Reshape to 3D</div>
+                    <div class="step-desc">Unflatten the sequence back to the original 3D spatial volume layout.</div>
+                    <div class="step-code">(B, D·H·W, C)<br>→ (B,C,D,H,W)</div>
+                </div>
+
+            </div>
+        </div>
+
+        <div class="comparison">
+            <div class="comp-title">Side-by-Side Comparison</div>
+            <div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;overflow:hidden">
+                <table class="comp-table">
+                    <thead>
+                        <tr>
+                            <th>Feature</th>
+                            <th style="color:rgba(79,158,255,0.6)">SegMamba</th>
+                            <th style="color:rgba(168,85,247,0.6)">U-Mamba</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td class="td-feat">Stem / Entry</td>
+                            <td class="td-seg">Single ConvNormAct directly into Stage 1</td>
+                            <td class="td-uma">Dedicated stem (2× ConvNormAct) before encoder — nnU-Net design</td>
+                        </tr>
+                        <tr>
+                            <td class="td-feat">Encoder Blocks</td>
+                            <td class="td-seg">ConvNormAct → ResConvBlock → MambaBlock3D<br><span
+                                    class="td-note">Separated modules</span></td>
+                            <td class="td-uma">UMambaBlock (ResConvBlock + MambaBlock3D + InstanceNorm fused)<br><span
+                                    class="td-note">Integrated unit</span></td>
+                        </tr>
+                        <tr>
+                            <td class="td-feat">Normalization</td>
+                            <td class="td-seg">InstanceNorm inside each ConvNormAct<br><span class="td-note">Per
+                                    convolution</span></td>
+                            <td class="td-uma">InstanceNorm at end of each UMambaBlock<br><span class="td-note">Per
+                                    stage</span></td>
+                        </tr>
+                        <tr>
+                            <td class="td-feat">Decoder Blocks</td>
+                            <td class="td-seg">ResConvBlock + MambaBlock3D</td>
+                            <td class="td-uma">Full UMambaBlock (same pattern as encoder)</td>
+                        </tr>
+                        <tr>
+                            <td class="td-feat">Skip Connections <span class="tag-shared">shared</span></td>
+                            <td colspan="2" style="color:var(--accent-green);text-align:center">torch.cat([upsampled,
+                                encoder_skip], dim=1) at each decoder stage · 3 skip connections total</td>
+                        </tr>
+                        <tr>
+                            <td class="td-feat">Downsampling <span class="tag-shared">shared</span></td>
+                            <td colspan="2" style="color:var(--accent-green);text-align:center">Conv3d stride=2 · halves
+                                D, H, W at each encoder stage transition</td>
+                        </tr>
+                        <tr>
+                            <td class="td-feat">Upsampling <span class="tag-shared">shared</span></td>
+                            <td colspan="2" style="color:var(--accent-green);text-align:center">ConvTranspose3d stride=2
+                                · doubles D, H, W at each decoder stage</td>
+                        </tr>
+                        <tr>
+                            <td class="td-feat">Output Head <span class="tag-shared">shared</span></td>
+                            <td colspan="2" style="color:var(--accent-green);text-align:center">Conv3d(32→1, kernel 1) →
+                                Tanh → Synthetic CT in [-1, 1]</td>
+                        </tr>
+                        <tr>
+                            <td class="td-feat">Design Inspiration</td>
+                            <td class="td-seg">SegMamba (3D medical segmentation)</td>
+                            <td class="td-uma">U-Mamba + nnU-Net (highly optimized medical framework)</td>
+                        </tr>
+                        <tr>
+                            <td class="td-feat">Parameters</td>
+                            <td class="td-seg" style="text-align:center">13.3M</td>
+                            <td class="td-uma" style="text-align:center">13.3M</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+    </div>
+</body>
+
+</html>
