@@ -182,9 +182,9 @@ All models are trained on brain MRI / CT pairs and evaluated with MAE, PSNR, SSI
 
 Hybrid CNN + Mamba U-Net. Each block = residual CNN + Mamba SSM scan over flattened 3D tokens. Standard skip connections. Adam · LR 5×10⁻⁴ cosine annealed · 500 epochs.
 
-**Best test case — brain_005 (PSNR 26.40 dB, MAE 0.0400) · MRI | Predicted CT | Ground Truth CT:**
+**Best test case — brain_017 (PSNR 26.81 dB) · MRI Input · Predicted CT · Ground Truth CT · Absolute Error:**
 
-![SegMamba brain_005](mamba_approach/SegMamba/visualizations/brain_005_comparison.png)
+![SegMamba best test result](mamba_approach/SegMamba/results/best_test_result.png)
 
 | Metric | Score | Std Dev |
 |---|---|---|
@@ -202,9 +202,9 @@ Hybrid CNN + Mamba U-Net. Each block = residual CNN + Mamba SSM scan over flatte
 
 U-Net with Mamba SSM encoder blocks. Full 3D volume flattened to 1D sequence — linear-time global context. Batch size 1 (memory-constrained). Adam · LR 5×10⁻⁴ cosine annealed · 500 epochs.
 
-**Final epoch — Input MRI · Generated CT · Target CT · Error Map:**
+**Best test case — brain_017 (PSNR 27.36 dB) · MRI Input · Predicted CT · Ground Truth CT · Absolute Error:**
 
-![UMamba final dashboard](mamba_approach/UMamba/results/dashboard_final.png)
+![UMamba best test result](mamba_approach/UMamba/results/best_test_result.png)
 
 | Metric | Score | Std Dev |
 |---|---|---|
@@ -220,9 +220,9 @@ U-Net with Mamba SSM encoder blocks. Full 3D volume flattened to 1D sequence —
 
 Bidirectional Mamba scans along **D, H, W axes separately** — no full-volume flattening. CBAM3D attention on skip connections, deep supervision, gradient checkpointing. Adam · LR 5×10⁻⁴ cosine annealed · 500 epochs.
 
-**Final epoch — Input MRI · Generated CT · Target CT · Error Map:**
+**Best test case — brain_001 (PSNR 27.83 dB) · MRI Input · Predicted CT · Ground Truth CT · Absolute Error:**
 
-![TriAxial final dashboard](mamba_approach/triaxial_mamba/results/dashboard_final.png)
+![TriAxial best test result](mamba_approach/triaxial_mamba/results/best_test_result.png)
 
 | Metric | Score | Std Dev |
 |---|---|---|
@@ -238,9 +238,9 @@ Bidirectional Mamba scans along **D, H, W axes separately** — no full-volume f
 
 **Best performing architecture.** 2D planar Mamba scans across Axial (HW), Coronal (DW), Sagittal (DH) planes + parallel MultiScaleDepthConv branch (dilations 1, 2, 4, 8). CBAM3D on skips, deep supervision. Adam · LR 5×10⁻⁴ cosine annealed · 500 epochs.
 
-**Final epoch — Input MRI · Generated CT · Target CT · Error Map:**
+**Best test case — brain_001 (PSNR 28.20 dB) · MRI Input · Predicted CT · Ground Truth CT · Absolute Error:**
 
-![TriPlane final dashboard](mamba_approach/triplane_mamba/results/dashboard_final.png)
+![TriPlane best test result](mamba_approach/triplane_mamba/results/best_test_result.png)
 
 | Metric | Score | Std Dev |
 |---|---|---|
@@ -256,14 +256,9 @@ Bidirectional Mamba scans along **D, H, W axes separately** — no full-volume f
 
 **2-stage pipeline** separating MRI semantic learning from diffusion denoising. Stage 1: MRI encoder pretrained via dual-task (MRI recon + CT prediction). Stage 2: frozen encoder conditions the DDPM denoiser via CrossAttention3D. Adam · LR 1×10⁻⁴ cosine annealed · both stages.
 
-**Best inference case — Sample 0 (PSNR 26.12 dB, SSIM 0.8386) · MRI | GT CT | Synthetic CT | Error:**
+**Best test case — Sample 0 (PSNR 26.12 dB, SSIM 0.8386) · MRI | GT CT | Synthetic CT | Error:**
 
-![Diffusion sample_000](pretrained_encoder_diffusion/stage2_diffusion/inference_results/hybrid/vis/sample_000.png)
-
-**Stage 1 encoder progression — epoch 1 vs epoch 500 (MRI recon + CT prediction quality):**
-
-![Encoder epoch 0001](pretrained_encoder_diffusion/stage1_encoder/visualizations/epoch_0001.png)
-![Encoder epoch 0500](pretrained_encoder_diffusion/stage1_encoder/visualizations/epoch_0500.png)
+![Pretrained encoder best test result](pretrained_encoder_diffusion/results/best_test_result.png)
 
 | Metric | Score |
 |---|---|
@@ -281,13 +276,9 @@ Bidirectional Mamba scans along **D, H, W axes separately** — no full-volume f
 
 Conditional **DDPM** with a **UMamba backbone** as the noise predictor. Takes a 2-channel input (MRI + noisy CT) and outputs ε + learned variance. Timestep sinusoidal embeddings are injected into every UMambaBlock via FiLM conditioning. Adam · LR 3×10⁻⁵ · 1000 diffusion steps · 500 epochs.
 
-**Training loss and validation PSNR over 500 epochs:**
+**Best test case — brain_001 (PSNR 24.06 dB) · MRI Input · Predicted CT · Ground Truth CT · Absolute Error:**
 
-![Training metrics](diffusion_umamba/visualizations/training_metrics.png)
-
-**Epoch 490 sample — MRI Input · CT Ground Truth · Generated CT:**
-
-![Epoch 490](diffusion_umamba/visualizations/epoch_490_comparison.png)
+![Diffusion UMamba best test result](diffusion_umamba/results/best_test_result.png)
 
 | Metric | Score |
 |---|---|

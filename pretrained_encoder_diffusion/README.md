@@ -281,23 +281,17 @@ Full breakdown: [`stage2_diffusion/inference_results/hybrid/metrics.txt`](stage2
 
 ## Sample Inference Results
 
-Best inference case (Sample 0 — PSNR 26.12 dB, SSIM 0.8386):
+Best test case — Sample 0 (PSNR 26.12 dB, SSIM 0.8386):
 
-![Sample 000](stage2_diffusion/inference_results/hybrid/vis/sample_000.png)
+![Best test result](results/best_test_result.png)
 
-![Sample 001](stage2_diffusion/inference_results/hybrid/vis/sample_001.png)
-
-![Sample 002](stage2_diffusion/inference_results/hybrid/vis/sample_002.png)
-
-> All 37 samples: [`stage2_diffusion/inference_results/hybrid/vis/`](stage2_diffusion/inference_results/hybrid/vis/)
+> All 37 test samples: [`stage2_diffusion/inference_results/hybrid/vis/`](stage2_diffusion/inference_results/hybrid/vis/)
 
 ### Stage 1 Encoder Pretraining Progression
 
 Each image: MRI input · MRI reconstructed · CT ground-truth · CT predicted
 
 ![Epoch 0001](stage1_encoder/visualizations/epoch_0001.png)
-
-![Epoch 0080](stage1_encoder/visualizations/epoch_0080.png)
 
 ![Epoch 0500](stage1_encoder/visualizations/epoch_0500.png)
 

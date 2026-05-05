@@ -177,16 +177,8 @@ python ../src/evaluate.py \
 
 ## Sample Results
 
-Best test case (brain_005 — PSNR 26.40 dB):
+Best test case — brain_017 (PSNR 26.81 dB) — MRI Input · Predicted CT · Ground Truth CT · Absolute Error:
 
-![SegMamba brain_005](visualizations/brain_005_comparison.png)
-
-![SegMamba brain_010](visualizations/brain_010_comparison.png)
-
-![SegMamba brain_020](visualizations/brain_020_comparison.png)
+![Best test result](results/best_test_result.png)
 
 > All 37 test comparisons: [`visualizations/`](visualizations/)
-
-Final epoch training dashboard:
-
-![Final epoch dashboard](results/dashboard_final.png)

@@ -240,9 +240,9 @@ python evaluate_dosimetric.py \
 
 ## Sample Results
 
-Final epoch training dashboard (Input MRI · Generated CT · Target CT · Error Map):
+Best test case — brain_001 (PSNR 27.83 dB) — MRI Input · Predicted CT · Ground Truth CT · Absolute Error:
 
-![Final epoch dashboard](results/dashboard_final.png)
+![Best test result](results/best_test_result.png)
 
 ---
 

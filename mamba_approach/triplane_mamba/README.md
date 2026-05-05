@@ -242,9 +242,9 @@ TriPlane achieves the **highest SSIM (0.8561)** and **best overall PSNR** among 
 
 ## Sample Results
 
-Final epoch training dashboard (Input MRI · Generated CT · Target CT · Error Map):
+Best test case — brain_001 (PSNR 28.20 dB) — MRI Input · Predicted CT · Ground Truth CT · Absolute Error:
 
-![Final epoch dashboard](results/dashboard_final.png)
+![Best test result](results/best_test_result.png)
 
 ---
 

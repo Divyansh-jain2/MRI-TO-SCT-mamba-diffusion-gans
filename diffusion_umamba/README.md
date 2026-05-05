@@ -245,18 +245,12 @@ python evaluate_dosimetry.py
 
 ## Sample Results
 
-Training loss and validation PSNR over 500 epochs:
+Best test case — brain_001 (PSNR 24.06 dB) — MRI Input · Predicted CT · Ground Truth CT · Absolute Error:
+
+![Best test result](results/best_test_result.png)
+
+Training loss and PSNR curves over 500 epochs:
 
 ![Training Metrics](visualizations/training_metrics.png)
-
-Epoch 490 sample (MRI Input · CT Ground Truth · Generated CT):
-
-![Epoch 490](visualizations/epoch_490_comparison.png)
-
-Epoch 10 (early training comparison):
-
-![Epoch 10](visualizations/epoch_10_comparison.png)
-
-> All epoch visualizations: [`visualizations/`](visualizations/)
 
 Full per-case dosimetric results: [`inference_results/dosimetric_metrics_all.csv`](inference_results/dosimetric_metrics_all.csv)
