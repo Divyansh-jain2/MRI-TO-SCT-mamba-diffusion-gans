@@ -1,0 +1,2 @@
+﻿exp_name,batch size,epochs,img_dim
+pix2pix,16,40,256

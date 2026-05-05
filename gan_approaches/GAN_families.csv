@@ -1,0 +1,3 @@
+﻿Family,Models,Training Paradigm,Typical Architecture,Main Losses,Key Characteristics,MRI-to-CT Implications,,,,,,,
+Paired (Supervised Translation),Pix2Pix,Supervised (aligned MRI–CT pairs),1 Generator (U-Net/ResNet) + 1 PatchGAN Discriminator,Adversarial + L1/L2 pixel-wise,Direct voxel-to-voxel constraint; strong structural supervision,Highest HU accuracy and stability; requires aligned datasets,,,,,,,
+Latent Space Sharing,UNIT,Unpaired with shared latent space assumption,Dual Encoders + Generators with shared residual blocks; VAE-like components,Adversarial + Reconstruction + KL (in VAE-based models),Assumption of common latent distribution across domains,Improved distribution modeling; higher architectural complexity

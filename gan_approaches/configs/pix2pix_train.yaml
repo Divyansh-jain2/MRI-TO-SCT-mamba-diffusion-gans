@@ -1,0 +1,25 @@
+seed: 0
+exp_name: pix2pix
+device:
+  cuda_device: cuda
+  gpu_num_workers: 2
+data:
+  cv: 5
+  fold_dir: /home/teaching/anshul_pix2pix/MRI_TO_CT/data/k_fold_cross_validation/folds_2d/brain_mc_ddpm
+  img_dim: 256
+  model_dir: ./models
+  report_dir: ./results
+  batch_size: 16
+model:
+  model_name: pix2pix
+  SAVE_MODEL: true
+trainer:
+  optimizer:
+    lr: 0.0002
+  early_stopping: 8
+  warm_up: 5
+  max_epochs: 40
+  L1_LAMBDA: 100
+  LAMBDA_GP: 10
+  CHECKPOINT_DISC: disc.pth.tar
+  CHECKPOINT_GEN: gen.pth.tar
