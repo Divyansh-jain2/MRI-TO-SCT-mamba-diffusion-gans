@@ -1,6 +1,6 @@
 # MRI-to-Synthetic-CT Synthesis — Research Repository
 
-This repository contains multiple deep-learning architectures for **3D MRI → Synthetic CT synthesis** targeting MRI-only radiotherapy planning. Four Mamba-based approaches and one pretrained-encoder diffusion model are implemented and evaluated.
+This repository contains **six deep-learning architectures** for **3D MRI → Synthetic CT synthesis** targeting MRI-only radiotherapy planning. Four Mamba-based regression models, one pretrained-encoder diffusion model, and one Diffusion UMamba model are implemented and evaluated.
 
 ---
 
@@ -14,6 +14,7 @@ This repository contains multiple deep-learning architectures for **3D MRI → S
   - [TriAxial Mamba](#3-triaxial-mamba-trimamba-unet-v2)
   - [TriPlane Mamba](#4-triplane-mamba-triplanemamba-unet)
   - [Pretrained Encoder + Hybrid Diffusion](#5-pretrained-encoder--hybrid-diffusion)
+  - [Diffusion UMamba](#6-diffusion-umamba)
 - [Dataset](#dataset)
 - [Results Summary](#results-summary)
 - [Dosimetric Analysis](#dosimetric-analysis)
@@ -30,8 +31,9 @@ Synthetic CT (sCT) generation from MRI avoids the need for a separate CT scan in
 3. **TriAxial Mamba** — 3D U-Net with per-axis bidirectional Mamba scans
 4. **TriPlane Mamba** — 3D U-Net with 2D planar Mamba scans + multi-scale depth convolutions
 5. **Pretrained Encoder + Hybrid Diffusion** — Task-aware MRI semantic encoder (Stage 1) + frozen-encoder cross-attention diffusion (Stage 2)
+6. **Diffusion UMamba** — Conditional DDPM with UMamba as the noise-prediction backbone (replaces SwinViT)
 
-All Mamba variants are trained on brain MRI / CT pairs and evaluated with MAE, PSNR, SSIM, and clinical dosimetric metrics (tissue MAE, RED, Gamma-Index).
+All models are trained on brain MRI / CT pairs and evaluated with MAE, PSNR, SSIM, and clinical dosimetric metrics (tissue MAE, RED, Gamma-Index).
 
 ---
 
@@ -114,6 +116,17 @@ All Mamba variants are trained on brain MRI / CT pairs and evaluated with MAE, P
 │           ├── dosimetric_metrics.csv
 │           └── brain_*.npy
 │
+├── diffusion_umamba/                                  ← Conditional DDPM with UMamba backbone
+│   ├── README.md
+│   ├── Diffusion_umamba_report.md
+│   ├── models.py / main_umamba_diffusion.py / test_umamba_diffusion.py
+│   ├── evaluate_dosimetry.py / run_*.sh
+│   ├── network/                                       # Denoising network architectures
+│   ├── diffusion/                                     # DDPM process
+│   ├── checkpoints/  best_model.pt / latest_model.pt
+│   ├── visualizations/  epoch_*_comparison.png + training_metrics.png
+│   └── inference_results/  dosimetric_metrics_all.csv + dosimetric_test_metrics.csv
+│
 ├── pretrained_encoder_diffusion/                      ← 2-stage pretrained encoder + diffusion
 │   │                                                  # Stage 1: MRI semantic encoder pretraining
 │   │                                                  # Stage 2: Frozen encoder + hybrid diffusion
@@ -167,22 +180,19 @@ All Mamba variants are trained on brain MRI / CT pairs and evaluated with MAE, P
 
 > **[mamba_approach/SegMamba/](mamba_approach/SegMamba/)**
 
-Hybrid CNN + Mamba U-Net. Each encoder/decoder block uses a `SegMambaBlock`: residual CNN followed by a Mamba SSM flattened-sequence scan. Standard skip connections.
+Hybrid CNN + Mamba U-Net. Each block = residual CNN + Mamba SSM scan over flattened 3D tokens. Standard skip connections. Adam · LR 5×10⁻⁴ cosine annealed · 500 epochs.
 
-**Training dashboard (epoch 500):**
+**Best test case — brain_005 (PSNR 26.40 dB, MAE 0.0400) · MRI | Predicted CT | Ground Truth CT:**
 
-![SegMamba training dashboard](mamba_approach/SegMamba/checkpoints/visuals/dashboard_epoch_500.png)
+![SegMamba brain_005](mamba_approach/SegMamba/visualizations/brain_005_comparison.png)
 
-**Test-set predictions (MRI · Predicted CT · Ground-truth CT):**
+| Metric | Score | Std Dev |
+|---|---|---|
+| MAE | 0.0480 | ± 0.0079 |
+| PSNR | 24.79 dB | ± 1.19 dB |
+| SSIM | 0.8432 | ± 0.0369 |
 
-![SegMamba brain_001](mamba_approach/SegMamba/visualizations/brain_001_comparison.png)
-![SegMamba brain_002](mamba_approach/SegMamba/visualizations/brain_002_comparison.png)
-
-| Metric | Score |
-|---|---|
-| MAE | 0.0480 ± 0.0079 |
-| PSNR | 24.79 ± 1.19 dB |
-| SSIM | 0.8432 ± 0.0369 |
+> All 37 test comparisons: [mamba_approach/SegMamba/visualizations/](mamba_approach/SegMamba/visualizations/)
 
 ---
 
@@ -190,17 +200,17 @@ Hybrid CNN + Mamba U-Net. Each encoder/decoder block uses a `SegMambaBlock`: res
 
 > **[mamba_approach/UMamba/](mamba_approach/UMamba/)**
 
-U-Net with Mamba SSM encoder blocks. Processes 3D tokens as a 1D sequence for linear-time global context. Batch size 1 due to larger per-sample memory.
+U-Net with Mamba SSM encoder blocks. Full 3D volume flattened to 1D sequence — linear-time global context. Batch size 1 (memory-constrained). Adam · LR 5×10⁻⁴ cosine annealed · 500 epochs.
 
-**Training dashboard (epoch 500):**
+**Final epoch — Input MRI · Generated CT · Target CT · Error Map:**
 
-![UMamba training dashboard](mamba_approach/UMamba/checkpoints/visuals/dashboard_epoch_500.png)
+![UMamba final dashboard](mamba_approach/UMamba/results/dashboard_final.png)
 
-| Metric | Score |
-|---|---|
-| MAE | 0.0443 ± 0.0075 |
-| PSNR | 25.23 ± 1.30 dB |
-| SSIM | 0.8531 ± 0.0358 |
+| Metric | Score | Std Dev |
+|---|---|---|
+| MAE | 0.0443 | ± 0.0075 |
+| PSNR | 25.23 dB | ± 1.30 dB |
+| SSIM | 0.8531 | ± 0.0358 |
 
 ---
 
@@ -208,17 +218,17 @@ U-Net with Mamba SSM encoder blocks. Processes 3D tokens as a 1D sequence for li
 
 > **[mamba_approach/triaxial_mamba/](mamba_approach/triaxial_mamba/)**
 
-Scans 3D features bidirectionally along **D, H, W axes separately**, then fuses with a 1×1 Conv. Avoids flattening the full 3D volume. Includes CBAM3D attention on skip connections, deep supervision, and gradient checkpointing.
+Bidirectional Mamba scans along **D, H, W axes separately** — no full-volume flattening. CBAM3D attention on skip connections, deep supervision, gradient checkpointing. Adam · LR 5×10⁻⁴ cosine annealed · 500 epochs.
 
-**Training dashboard (epoch 500):**
+**Final epoch — Input MRI · Generated CT · Target CT · Error Map:**
 
-![TriAxial training dashboard](mamba_approach/triaxial_mamba/checkpoints_trimamba/visuals/dashboard_epoch_500.png)
+![TriAxial final dashboard](mamba_approach/triaxial_mamba/results/dashboard_final.png)
 
-| Metric | Score |
-|---|---|
-| MAE | 0.0458 ± 0.0070 |
-| PSNR | 25.71 ± 1.31 dB |
-| SSIM | 0.8540 ± 0.0341 |
+| Metric | Score | Std Dev |
+|---|---|---|
+| MAE | 0.0458 | ± 0.0070 |
+| PSNR | 25.71 dB | ± 1.31 dB |
+| SSIM | 0.8540 | ± 0.0341 |
 
 ---
 
@@ -226,18 +236,17 @@ Scans 3D features bidirectionally along **D, H, W axes separately**, then fuses 
 
 > **[mamba_approach/triplane_mamba/](mamba_approach/triplane_mamba/)**
 
-Best performing architecture. Replaces 1D axis scans with **2D planar Mamba scans** across Axial (HW), Coronal (DW), and Sagittal (DH) planes. A parallel `MultiScaleDepthConv` branch (dilations 1, 2, 4, 8) captures local structure. Combined output: richer spatial representation than single-axis scanning.
+**Best performing architecture.** 2D planar Mamba scans across Axial (HW), Coronal (DW), Sagittal (DH) planes + parallel MultiScaleDepthConv branch (dilations 1, 2, 4, 8). CBAM3D on skips, deep supervision. Adam · LR 5×10⁻⁴ cosine annealed · 500 epochs.
 
-**Training dashboard (epoch 500):**
+**Final epoch — Input MRI · Generated CT · Target CT · Error Map:**
 
-![TriPlane training dashboard](mamba_approach/triplane_mamba/checkpoints_triplane/visuals/dashboard_epoch_500.png)
+![TriPlane final dashboard](mamba_approach/triplane_mamba/results/dashboard_final.png)
 
-| Metric | Score |
-|---|---|
-| MAE | **0.0445 ± 0.0074** |
-| RMSE | 0.1041 ± 0.0178 |
-| PSNR | **25.79 ± 1.42 dB** |
-| SSIM | **0.8561 ± 0.0358** |
+| Metric | Score | Std Dev |
+|---|---|---|
+| **MAE** | **0.0445** | ± 0.0074 |
+| **PSNR** | **25.79 dB** | ± 1.42 dB |
+| **SSIM** | **0.8561** | ± 0.0358 |
 
 ---
 
@@ -245,16 +254,16 @@ Best performing architecture. Replaces 1D axis scans with **2D planar Mamba scan
 
 > **[pretrained_encoder_diffusion/](pretrained_encoder_diffusion/)**
 
-A **2-stage pipeline** that separates MRI feature learning from diffusion denoising. Instead of concatenating MRI directly to the noisy CT (as in the original MC-IDDPM baseline), a dedicated **MRI semantic encoder** is pretrained first, then frozen and plugged into the diffusion denoiser via cross-attention.
+**2-stage pipeline** separating MRI semantic learning from diffusion denoising. Stage 1: MRI encoder pretrained via dual-task (MRI recon + CT prediction). Stage 2: frozen encoder conditions the DDPM denoiser via CrossAttention3D. Adam · LR 1×10⁻⁴ cosine annealed · both stages.
 
-**Stage 1 — MRI encoder pretraining** (`stage1_encoder/`):
-- Dual-task: MRI reconstruction (spatial fidelity) + CT prediction (HU-discriminative features)
-- Loss: `0.5 × L1(CT) + 0.3 × L1(MRI) + 0.2 × SSIM(MRI)`
-- Outputs: `stage1_encoder/checkpoints/best_mri_encoder.pt`
+**Best inference case — Sample 0 (PSNR 26.12 dB, SSIM 0.8386) · MRI | GT CT | Synthetic CT | Error:**
 
-**Stage 2 — Hybrid diffusion training** (`stage2_diffusion/`):
-- Frozen encoder produces `f₁–f₄ + global_token`
-- Denoising UNet attends to encoder features at each scale via `CrossAttention3D`
+![Diffusion sample_000](pretrained_encoder_diffusion/stage2_diffusion/inference_results/hybrid/vis/sample_000.png)
+
+**Stage 1 encoder progression — epoch 1 vs epoch 500 (MRI recon + CT prediction quality):**
+
+![Encoder epoch 0001](pretrained_encoder_diffusion/stage1_encoder/visualizations/epoch_0001.png)
+![Encoder epoch 0500](pretrained_encoder_diffusion/stage1_encoder/visualizations/epoch_0500.png)
 
 | Metric | Score |
 |---|---|
@@ -262,7 +271,32 @@ A **2-stage pipeline** that separates MRI feature learning from diffusion denois
 | SSIM | 0.8037 |
 | MAE | 0.0492 |
 
-The `baseline/` subfolder contains the original MC-IDDPM training scripts (MRI concat to noisy CT) for direct comparison.
+> Full inference gallery: [pretrained_encoder_diffusion/stage2_diffusion/inference_results/hybrid/vis/](pretrained_encoder_diffusion/stage2_diffusion/inference_results/hybrid/vis/)
+
+---
+
+### 6. Diffusion UMamba
+
+> **[diffusion_umamba/](diffusion_umamba/)**
+
+Conditional **DDPM** with a **UMamba backbone** as the noise predictor. Takes a 2-channel input (MRI + noisy CT) and outputs ε + learned variance. Timestep sinusoidal embeddings are injected into every UMambaBlock via FiLM conditioning. Adam · LR 3×10⁻⁵ · 1000 diffusion steps · 500 epochs.
+
+**Training loss and validation PSNR over 500 epochs:**
+
+![Training metrics](diffusion_umamba/visualizations/training_metrics.png)
+
+**Epoch 490 sample — MRI Input · CT Ground Truth · Generated CT:**
+
+![Epoch 490](diffusion_umamba/visualizations/epoch_490_comparison.png)
+
+| Metric | Score |
+|---|---|
+| PSNR (3D) | 22.49 dB ± 0.82 dB |
+| SSIM | 0.7678 ± 0.0318 |
+| Gamma (1% / 1mm) | **90.52%** |
+| Gamma (2% / 2mm) | 99.03% |
+
+> Despite lower PSNR vs Mamba regression models, Diffusion UMamba crosses the clinical **90% Gamma threshold** — suggesting the diffusion process preserves dose-relevant structure even when pixel-level HU accuracy is weaker.
 
 ---
 
@@ -296,6 +330,20 @@ Individual patient folders, each containing `ct.nii.gz`, `mr.nii.gz`, `mask.nii.
 | U-Mamba | 0.0443 ± 0.0075 | 25.23 dB | 0.8531 |
 | TriAxial Mamba | 0.0458 ± 0.0070 | 25.71 dB | 0.8540 |
 | **TriPlane Mamba** | **0.0445 ± 0.0074** | **25.79 dB** | **0.8561** |
+| Pretrained Enc. + Diffusion | 0.0492 ± 0.0077 | 24.12 dB | 0.8037 |
+| Diffusion UMamba | — | 22.49 dB ± 0.82 | 0.7678 ± 0.0318 |
+
+### Dosimetric Summary (Gamma-Index)
+
+| Architecture | Gamma (1%/1mm) ↑ | Gamma (2%/2mm) ↑ |
+|---|---|---|
+| SegMamba | 91.61% | 99.35% |
+| **U-Mamba** | **93.26%** | **99.55%** |
+| TriAxial Mamba | 88.71% | 98.83% |
+| TriPlane Mamba | 90.61% ✓ | 99.14% |
+| Diffusion UMamba | 90.52% ✓ | 99.03% |
+
+> ✓ = crosses the clinical 90% threshold for the strict 1%/1mm Gamma criterion.
 
 ---
 
@@ -372,3 +420,7 @@ conda env create -f mamba_approach/triplane_mamba/environment.yml
 | Encoder pretraining script | [pretrained_encoder_diffusion/stage1_encoder/pretrain_mri_encoder.py](pretrained_encoder_diffusion/stage1_encoder/pretrain_mri_encoder.py) |
 | Hybrid diffusion training | [pretrained_encoder_diffusion/stage2_diffusion/main_hybrid.py](pretrained_encoder_diffusion/stage2_diffusion/main_hybrid.py) |
 | Hybrid model test metrics | [pretrained_encoder_diffusion/stage2_diffusion/inference_results/hybrid/metrics.txt](pretrained_encoder_diffusion/stage2_diffusion/inference_results/hybrid/metrics.txt) |
+| Diffusion UMamba README | [diffusion_umamba/README.md](diffusion_umamba/README.md) |
+| Diffusion UMamba training | [diffusion_umamba/main_umamba_diffusion.py](diffusion_umamba/main_umamba_diffusion.py) |
+| Diffusion UMamba dosimetric CSV | [diffusion_umamba/inference_results/dosimetric_metrics_all.csv](diffusion_umamba/inference_results/dosimetric_metrics_all.csv) |
+| Diffusion UMamba report | [diffusion_umamba/Diffusion_umamba_report.md](diffusion_umamba/Diffusion_umamba_report.md) |

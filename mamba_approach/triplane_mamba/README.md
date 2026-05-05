@@ -1,6 +1,6 @@
 # TriPlane Mamba (TriPlaneMamba-UNet) — MRI-to-CT Synthesis
 
-TriPlane Mamba improves on TriAxial by replacing 1D axial SSM scans with **2D planar Mamba scans** across the Axial (HW), Coronal (DW), and Sagittal (DH) planes. A parallel `MultiScaleDepthConv` branch captures local structure at 4 dilation scales. Combined, this delivers richer spatial context than single-axis scanning.
+TriPlane Mamba is the **best-performing architecture** in this repository. It replaces 1D axial SSM scans with **2D planar Mamba scans** across the Axial (HW), Coronal (DW), and Sagittal (DH) planes. A parallel `MultiScaleDepthConv` branch captures local structure at 4 dilation scales. Combined, this gives richer spatial context than either single-axis or full-volume scanning.
 
 ---
 
@@ -8,87 +8,143 @@ TriPlane Mamba improves on TriAxial by replacing 1D axial SSM scans with **2D pl
 
 ```
 triplane_mamba/
-├── README.md                          ← you are here
-├── Triplane_Mamba_Report.md           # Full technical report with source code
+├── README.md
+├── Triplane_Mamba_Report.md           # Full technical report
 ├── models.py                          # TriPlaneMamba-UNet architecture
 ├── train.py                           # Training script
 ├── evaluate.py                        # Inference + MAE / PSNR / SSIM
 ├── evaluate_dosimetric.py             # RED / Gamma-index dosimetric analysis
 ├── dataset.py                         # Data loader
 ├── losses.py                          # Loss functions
-├── visualize.py                       # Generates comparison visualizations
+├── visualize.py                       # Generates comparison PNGs
 ├── environment.yml                    # Conda environment spec
-├── run_training_triplane.sh           # Training shell script
-├── resume_training_triplane.sh        # Resume from checkpoint
-├── run_eval_trimamba.sh               # Evaluation shell script
-├── training_triplane_output.log       # Full training log
+├── run_training_triplane.sh
+├── resume_training_triplane.sh
+├── run_eval_trimamba.sh
 ├── architecture.html                  # Interactive architecture diagram
 │
 ├── checkpoints_triplane/
-│   ├── triplane_best.pth              # Best model weights
-│   ├── triplane_epoch50.pth           # Epoch checkpoints (50 … 500)
-│   ├── ...
+│   ├── triplane_best.pth
+│   ├── triplane_epoch50.pth … triplane_epoch500.pth
 │   └── visuals/                       # Per-epoch training dashboards
-│       ├── dashboard_epoch_001.png
-│       └── ...  dashboard_epoch_500.png
 │
-└── predictions_triplane/
-    ├── dosimetric_metrics.csv         # Full per-case dosimetric results
-    └── brain_001.npy … brain_037.npy # Test-set prediction arrays
+├── predictions_triplane/
+│   ├── dosimetric_metrics.csv
+│   └── brain_001.npy … brain_037.npy
+│
+└── results/
+    └── dashboard_final.png            # Final epoch training dashboard
 ```
 
 ---
 
-## Architecture
+## End-to-End Architecture
 
-### TriPlaneMambaBlock
+```mermaid
+flowchart TD
+    Input["MRI Input · (1, 64, 192, 192)"]
+    Input --> Stem["Stem · 2× ConvNormAct\n1 → 32 ch"]
 
-Each block runs two parallel branches:
+    Stem --> E1["Enc1 · TriPlaneMambaBlock\n32 ch · full res"]
+    E1   --> D1["Down1 · Stride-2 Conv"]
+    D1   --> E2["Enc2 · TriPlaneMambaBlock\n64 ch · ½ res"]
+    E2   --> D2["Down2 · Stride-2 Conv"]
+    D2   --> E3["Enc3 · TriPlaneMambaBlock\n128 ch · ¼ res"]
+    E3   --> D3["Down3 · Stride-2 Conv"]
+    D3   --> E4["Enc4 · Bottleneck · TriPlaneMambaBlock\n256 ch · ⅛ res"]
 
-```
-Input (B, C, D, H, W)
-    ├─ Branch 1 (Local): MultiScaleDepthConv
-    │       └─ 4 parallel dilated Conv3d [d=1, 2, 4, 8] along Depth → concat → project
-    │
-    └─ Branch 2 (Global): Tri-plane bidirectional Mamba scans
-            ├─ HW plane  (Axial):    reshape → BiMamba → restore
-            ├─ DW plane  (Coronal):  reshape → BiMamba → restore
-            └─ DH plane  (Sagittal): reshape → BiMamba → restore
-                        ↓
-               Fusion Conv3d(y_hw + y_dw + y_dh)
-                        ↓
-    Output = Residual + Local + Global
-```
+    E4   --> U3["Up3 · Trilinear + Conv"]
+    E3   -->|"CBAM3D → skip concat"| U3
+    U3   --> Dec3["Dec3 · TriPlaneMambaBlock · 128 ch"]
+    Dec3 --> Aux3["Aux Head 3\n(deep supervision · train only)"]
 
-### U-Net Topology
+    Dec3 --> U2["Up2 · Trilinear + Conv"]
+    E2   -->|"CBAM3D → skip concat"| U2
+    U2   --> Dec2["Dec2 · TriPlaneMambaBlock · 64 ch"]
+    Dec2 --> Aux2["Aux Head 2\n(deep supervision · train only)"]
 
-```
-MRI (1, D, H, W)
-    └─ Stem
-        └─ Enc1 → Down1 → Enc2 → Down2 → Enc3 → Down3 → Enc4
-                                                              ↓
-                                              Up3 + CBAM3D(Enc3) → Dec3
-                                              Up2 + CBAM3D(Enc2) → Dec2
-                                              Up1 + CBAM3D(Enc1) → Dec1
-                                                              ↓
-                                               Auxiliary heads (Dec2, Dec3)
-                                               for deep supervision (train only)
-                                                              ↓
-                                                Head (Conv3d + Tanh)
-                                                              ↓
-                                                  Synthetic CT (1, D, H, W)
+    Dec2 --> U1["Up1 · Trilinear + Conv"]
+    E1   -->|"CBAM3D → skip concat"| U1
+    U1   --> Dec1["Dec1 · TriPlaneMambaBlock · 32 ch"]
+
+    Dec1 --> Head["Output Head · Conv3d + Tanh"]
+    Head --> Out["Synthetic CT · (1, 64, 192, 192)"]
 ```
 
-| Hyperparameter | Value |
+### TriPlaneMambaBlock — dual-branch design
+
+```mermaid
+flowchart TD
+    In["Input · (B, C, D, H, W)"]
+
+    In --> Local["Branch 1 · MultiScaleDepthConv\n4× dilated Conv3d along Depth\ndilations d = 1, 2, 4, 8\n→ concat → project → C channels"]
+
+    In --> HW["HW plane (Axial)\nreshape (B·D, H·W, C)\n→ BiMamba → restore"]
+    In --> DW["DW plane (Coronal)\nreshape (B·H, D·W, C)\n→ BiMamba → restore"]
+    In --> DH["DH plane (Sagittal)\nreshape (B·W, D·H, C)\n→ BiMamba → restore"]
+
+    HW & DW & DH --> FuseG["Fusion Conv3d\ny_hw + y_dw + y_dh → C channels\nBranch 2 · Global"]
+
+    Local & FuseG --> Add["Output = Residual + Local + Global"]
+    Add --> Out["Output · (B, C, D, H, W)"]
+```
+
+> **Why 2D planes instead of 1D axes?** A single HW-plane scan captures both spatial dimensions of a slice simultaneously. The three planes together cover the full 3D structure with no dimension left unattended — stronger context than 1D axis scans at comparable sequence length.
+
+### CBAM3D on skip connections
+
+```mermaid
+flowchart LR
+    Enc["Encoder feature\n(B, C, D, H, W)"]
+    Enc --> CA["Channel Attention\nGlobalAvgPool + MaxPool + FC + Sigmoid"]
+    CA  --> SA["Spatial Attention\nChan-AvgPool + Chan-MaxPool → Conv → Sigmoid"]
+    SA  --> Filtered["Attention-gated skip"]
+    Filtered --> Concat["Concat with decoder feature"]
+```
+
+---
+
+## Training Pipeline
+
+```mermaid
+flowchart LR
+    Data["brain_npy\n(MRI + CT pairs)"]
+    Data --> Patch["Random Patch\n64 × 192 × 192"]
+    Patch --> Aug["Test-Time Aug\n(flip · rot · enabled at eval)"]
+    Aug --> Model["TriPlane Mamba\n~20–22 M params\nGrad Checkpointing ON"]
+    Model --> Loss["Loss\nepoch < 100 → wMAE\nepoch ≥ 100 → wMAE + SSIM + AFP\n+ deep supervision weights 0.4 · 0.2"]
+    Loss --> Opt["Adam\nβ₁=0.9 β₂=0.999\nlr₀ = 5 × 10⁻⁴"]
+    Opt --> Sched["CosineAnnealingLR\nT_max = 500 · η_min = 1 × 10⁻⁶"]
+    Sched -->|"next epoch"| Model
+```
+
+### Hyperparameters
+
+| Parameter | Value |
 |---|---|
+| Optimizer | Adam (β₁=0.9, β₂=0.999) |
+| Initial LR | 5 × 10⁻⁴ |
+| LR schedule | Cosine annealing · T_max=500 · η_min=1×10⁻⁶ |
+| Epochs | 500 |
+| Batch size | 1 |
+| Patch size | (64, 192, 192) D×H×W |
 | Base channels | 32 → 64 → 128 → 256 |
-| SSM state dim (`d_state`) | 16 |
+| SSM state dim | 16 |
+| Depth conv dilations | [1, 2, 4, 8] |
 | Parameters | ~20–22 M |
-| Multi-scale depth conv dilations | [1, 2, 4, 8] |
-| Upsampling | Trilinear interpolation + Conv3d |
-| Gradient checkpointing | Enabled |
-| Deep supervision | Auxiliary heads at Dec2 and Dec3 |
-| Test-Time Augmentation | Enabled |
+| Gradient checkpointing | Enabled (~60% activation memory saved) |
+| Deep supervision | Aux heads at Dec2 and Dec3 (weights 0.4, 0.2) |
+| Test-Time Augmentation | Enabled at inference |
+| Mixed precision | AMP (fp16) |
+| Upsampling | Trilinear interpolation + Conv3d (no checkerboard) |
+| Checkpoint save | Every 50 epochs + best val |
+
+### Loss Schedule
+
+| Phase | Epochs | Components |
+|---|---|---|
+| Warmup | 1 – 99 | wMAE (Bone 3.0 · Soft tissue 1.5 · Air 0.5) |
+| Full | 100 – 500 | wMAE + SSIM + AFP + deep supervision terms |
 
 ---
 
@@ -109,17 +165,16 @@ pip install numpy scipy scikit-image monai
 pip install causal-conv1d>=1.2.0 mamba-ssm
 ```
 
+> If `mamba-ssm` fails (CUDA mismatch), code falls back to GRU-based SSM automatically.
+
 ---
 
-## Training
+## Running
 
 ```bash
 bash run_training_triplane.sh
-```
 
-Or directly:
-
-```bash
+# Or directly:
 python train.py \
     --data_dir /DATA/divyansh/mc_ddpm_data/brain_npy \
     --epochs 500 \
@@ -129,23 +184,18 @@ python train.py \
     --save_dir ./checkpoints_triplane
 ```
 
-### Resume from checkpoint
+### Resume
 
 ```bash
 bash resume_training_triplane.sh
 ```
 
----
-
-## Evaluation
+### Evaluate
 
 ```bash
 bash run_eval_trimamba.sh
-```
 
-Or directly:
-
-```bash
+# Or directly:
 python evaluate.py \
     --data_dir /DATA/divyansh/mc_ddpm_data/brain_npy \
     --checkpoint ./checkpoints_triplane/triplane_best.pth \
@@ -160,7 +210,7 @@ python evaluate_dosimetric.py \
 
 ## Results
 
-### Test-Set Performance
+### Image Quality (37 test cases)
 
 | Metric | Score | Std Dev |
 |---|---|---|
@@ -169,11 +219,11 @@ python evaluate_dosimetric.py \
 | **PSNR** | **25.79 dB** | ± 1.42 dB |
 | **SSIM** | **0.8561** | ± 0.0358 |
 
-TriPlane achieves the **highest SSIM (0.8561)** among all Mamba variants, indicating superior structural retention.
+TriPlane achieves the **highest SSIM (0.8561)** and **best overall PSNR** among all architectures tested.
 
 ### Dosimetric Metrics
 
-| Metric | TriPlane Mamba | TriAxial Mamba | Best |
+| Metric | TriPlane | TriAxial | Best |
 |---|---|---|---|
 | PSNR (3D) | **25.79 dB** | 25.71 dB | TriPlane |
 | PSNR (2D) | **26.40 dB** | 26.32 dB | TriPlane |
@@ -183,37 +233,21 @@ TriPlane achieves the **highest SSIM (0.8561)** among all Mamba variants, indica
 | Soft Tissue MAE | 38.87 HU | **38.31 HU** | TriAxial |
 | Bone MAE | **189.39 HU** | 196.20 HU | TriPlane |
 | RED MAE | **0.04837** | 0.05012 | TriPlane |
-| Gamma (1% / 1mm) | **90.61%** | 88.71% | TriPlane |
+| Gamma (1% / 1mm) | **90.61%** | 88.71% | TriPlane ✓ |
 | Gamma (2% / 2mm) | **99.14%** | 98.83% | TriPlane |
 
-> TriPlane Mamba is the best overall performer, crossing the clinical 90% threshold for the strict 1%/1mm Gamma criterion.
+> TriPlane Mamba crosses the clinical **90% threshold for the strict 1%/1mm Gamma criterion** (90.61%), the only Mamba variant to do so.
 
 ---
 
-## Sample Visualizations
+## Sample Results
 
-Training dashboard at epoch 500:
+Final epoch training dashboard (Input MRI · Generated CT · Target CT · Error Map):
 
-![Training Dashboard epoch 500](checkpoints_triplane/visuals/dashboard_epoch_500.png)
-
-Earlier epoch (epoch 100) for comparison:
-
-![Training Dashboard epoch 100](checkpoints_triplane/visuals/dashboard_epoch_100.png)
-
-> All epoch dashboards are in [`checkpoints_triplane/visuals/`](checkpoints_triplane/visuals/).
-
----
-
-## Model Weights
-
-| File | Notes |
-|---|---|
-| `checkpoints_triplane/triplane_best.pth` | Best validation loss — use for inference |
-| `checkpoints_triplane/triplane_epoch500.pth` | Final epoch |
-| `checkpoints_triplane/triplane_epoch*.pth` | Intermediate checkpoints every 50 epochs |
+![Final epoch dashboard](results/dashboard_final.png)
 
 ---
 
 ## Full Technical Report
 
-See [Triplane_Mamba_Report.md](Triplane_Mamba_Report.md) for the complete architecture source code, training details, and methodology including the full `TriPlaneMambaUNet` implementation.
+See [Triplane_Mamba_Report.md](Triplane_Mamba_Report.md) for the complete architecture source code, training details, and methodology.

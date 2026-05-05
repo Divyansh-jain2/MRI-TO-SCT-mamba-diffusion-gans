@@ -12,7 +12,6 @@ UMamba/
 ├── run_training.sh                # Training launch script
 ├── run_eval.sh                    # Evaluation launch script
 ├── run_viz.sh                     # Visualization generation script
-├── training_output.log            # Full training log (500 epochs)
 ├── umamba_report.md               # U-Mamba architecture report
 ├── unet_umamba_report.md          # UNet-Mamba variant report
 ├── diffusion_mamba_models.py      # Diffusion-UMamba model definitions
@@ -20,51 +19,108 @@ UMamba/
 │
 ├── checkpoints/
 │   ├── umamba_best.pth            # Best model weights (lowest val loss)
-│   ├── umamba_epoch50.pth         # Checkpoints every 50 epochs
-│   ├── ...
-│   ├── umamba_epoch500.pth
-│   ├── umamba_train_log.txt       # Per-epoch loss values
-│   ├── umamba_test_results.txt    # Final test-set metrics
-│   └── visuals/                   # Per-epoch training dashboards (500 PNGs)
-│       ├── dashboard_epoch_001.png
-│       └── ...  dashboard_epoch_500.png
+│   ├── umamba_epoch50.pth … umamba_epoch500.pth
+│   ├── umamba_train_log.txt
+│   └── umamba_test_results.txt
 │
-└── predictions/                   # Test-set prediction arrays
-    └── brain_001.npy … brain_037.npy
+├── predictions/                   # Test-set .npy arrays (37 cases)
+│
+└── results/
+    └── dashboard_final.png        # Final epoch training dashboard
 ```
 
-> Shared source code lives in [`../src/`](../src/) — `models.py`, `train.py`, `evaluate.py`, `dataset.py`, `losses.py`, `visualize.py`, `dosometric.py`.
+> Shared source code: [`../src/`](../src/) — `models.py`, `train.py`, `evaluate.py`, `dataset.py`, `losses.py`, `visualize.py`, `dosometric.py`
 
 ---
 
-## Architecture
+## End-to-End Architecture
 
-U-Mamba uses the same 4-level U-Net skeleton as SegMamba. The core block is a **UMambaBlock**: residual CNN followed by a Mamba SSM that processes flattened 3D tokens as a 1D sequence.
+```mermaid
+flowchart TD
+    Input["MRI Input · (1, 64, 192, 192)"]
+    Input --> Stem["Stem · 2× ConvNormAct\n1 → 32 ch"]
 
+    Stem --> E1["Enc1 · UMambaBlock\n32 ch · full res"]
+    E1   --> D1["Down1 · Stride-2 Conv"]
+    D1   --> E2["Enc2 · UMambaBlock\n64 ch · ½ res"]
+    E2   --> D2["Down2 · Stride-2 Conv"]
+    D2   --> E3["Enc3 · UMambaBlock\n128 ch · ¼ res"]
+    E3   --> D3["Down3 · Stride-2 Conv"]
+    D3   --> E4["Enc4 · Bottleneck · UMambaBlock\n256 ch · ⅛ res"]
+
+    E4   --> U3["Up3 · Trilinear + Conv"]
+    E3   -->|skip concat| U3
+    U3   --> Dec3["Dec3 · ConvBlock · 128 ch"]
+
+    Dec3 --> U2["Up2 · Trilinear + Conv"]
+    E2   -->|skip concat| U2
+    U2   --> Dec2["Dec2 · ConvBlock · 64 ch"]
+
+    Dec2 --> U1["Up1 · Trilinear + Conv"]
+    E1   -->|skip concat| U1
+    U1   --> Dec1["Dec1 · ConvBlock · 32 ch"]
+
+    Dec1 --> Head["Output Head · Conv3d + Tanh"]
+    Head --> Out["Synthetic CT · (1, 64, 192, 192)"]
 ```
-MRI (1, D, H, W)
-    └─ Stem (ConvNormAct × 2)
-        ├─ Enc1 ──Down1──> Enc2 ──Down2──> Enc3 ──Down3──> Enc4 (bottleneck)
-        │                                                        ↓
-        └──────────────────────────────────────────────  Up3 + skip(Enc3) → Dec3
-                                                         Up2 + skip(Enc2) → Dec2
-                                                         Up1 + skip(Enc1) → Dec1
-                                                                  ↓
-                                                          Head (Conv3d + Tanh)
-                                                                  ↓
-                                                         Synthetic CT (1, D, H, W)
+
+### UMambaBlock (encoder stages only)
+
+The decoder uses plain ConvBlocks; Mamba SSM is applied in the encoder path only.
+
+```mermaid
+flowchart LR
+    In["Input\n(B, C, D, H, W)"] --> CNN["ResBlock\nGroupNorm + ReLU + Conv3d"]
+    CNN --> Flat["Flatten full volume\n→ (B, D·H·W, C)\nsequence length = D×H×W"]
+    Flat --> SSM["Mamba SSM\nd_state = 16\nlinear O(N) complexity"]
+    SSM --> Reshape["Reshape\n→ (B, C, D, H, W)"]
+    Reshape --> Add["+ Residual skip"]
+    Add --> Out["Output\n(B, C, D, H, W)"]
 ```
 
-| Hyperparameter | Value |
+> The full 3D volume is flattened into a single 1D sequence — more context than SegMamba's scan, at the cost of higher peak memory (hence batch size 1).
+
+---
+
+## Training Pipeline
+
+```mermaid
+flowchart LR
+    Data["brain_npy\n(MRI + CT pairs)\nshape: (2, 192, 192, 96)"]
+    Data --> Patch["Random Patch\n64 × 192 × 192"]
+    Patch --> Model["U-Mamba\n~18 M params"]
+    Model --> Loss["Loss function\nepoch < 100 → wMAE\nepoch ≥ 100 → wMAE + SSIM + AFP"]
+    Loss --> Opt["Adam\nβ₁=0.9 β₂=0.999 ε=1e-8\nlr₀ = 5 × 10⁻⁴"]
+    Opt --> Sched["CosineAnnealingLR\nT_max = 500 · η_min = 1 × 10⁻⁶"]
+    Sched -->|"next epoch"| Model
+```
+
+### Hyperparameters
+
+| Parameter | Value |
 |---|---|
-| Base channels | 32 → 64 → 128 → 256 |
-| SSM state dim (`d_state`) | 16 |
+| Optimizer | Adam (β₁=0.9, β₂=0.999) |
+| Initial LR | 5 × 10⁻⁴ |
+| LR schedule | Cosine annealing · T_max=500 · η_min=1×10⁻⁶ |
+| Epochs | 500 |
+| Batch size | 1 (memory-constrained by full-volume flattening) |
 | Patch size | (64, 192, 192) D×H×W |
-| Batch size | 1 |
+| Base channels | 32 → 64 → 128 → 256 |
+| SSM state dim | 16 |
+| Parameters | ~18 M |
+| Mixed precision | AMP (fp16) |
+| Checkpoint save | Every 50 epochs + best val |
+
+### Loss Schedule
+
+| Phase | Epochs | Components | HU tissue weights |
+|---|---|---|---|
+| Warmup | 1 – 99 | wMAE | Bone 3.0 · Soft tissue 1.5 · Air 0.5 |
+| Full | 100 – 500 | wMAE + SSIM + AFP | same |
 
 ---
 
-## Training
+## Running
 
 ```bash
 # From inside UMamba/
@@ -81,16 +137,7 @@ python ../src/train.py \
     --save_dir ./checkpoints
 ```
 
-### Loss Schedule
-
-| Phase | Epochs | Loss Components |
-|---|---|---|
-| Warmup | 1 – 99 | Weighted HU-aware MAE |
-| Full | 100 – 500 | wMAE + SSIM + AFP |
-
----
-
-## Evaluation
+### Evaluate
 
 ```bash
 bash run_eval.sh
@@ -107,7 +154,7 @@ python ../src/evaluate.py \
 
 ## Results
 
-### Test-Set Metrics
+### Image Quality (37 test cases)
 
 | Metric | Score | Std Dev |
 |---|---|---|
@@ -134,18 +181,8 @@ U-Mamba outperforms SegMamba on all three standard metrics.
 
 ---
 
-## Visualizations
+## Sample Results
 
-Training dashboard at epoch 500:
+Final epoch training dashboard (Input MRI · Generated CT · Target CT · Error Map):
 
-![Training Dashboard epoch 500](checkpoints/visuals/dashboard_epoch_500.png)
-
----
-
-## Model Weights
-
-| File | Notes |
-|---|---|
-| `checkpoints/umamba_best.pth` | Best validation checkpoint — use for inference |
-| `checkpoints/umamba_epoch500.pth` | Final epoch |
-| `checkpoints/umamba_epoch*.pth` | Intermediate saves every 50 epochs |
+![Final epoch dashboard](results/dashboard_final.png)

@@ -12,60 +12,111 @@ SegMamba/
 ├── run_training.sh                # Training launch script
 ├── run_eval.sh                    # Evaluation launch script
 ├── run_viz.sh                     # Visualization generation script
-├── training_output.log            # Full training log (500 epochs)
 ├── segmamba_report.md             # Detailed architecture report
 │
 ├── checkpoints/
 │   ├── segmamba_best.pth          # Best model weights (lowest val loss)
-│   ├── segmamba_epoch50.pth       # Checkpoints every 50 epochs
-│   ├── ...
-│   ├── segmamba_epoch500.pth
-│   ├── segmamba_train_log.txt     # Per-epoch loss values
-│   ├── segmamba_test_results.txt  # Final test-set metrics
-│   └── visuals/                   # Per-epoch training dashboards (500 PNGs)
-│       ├── dashboard_epoch_001.png
-│       └── ...  dashboard_epoch_500.png
+│   ├── segmamba_epoch50.pth … segmamba_epoch500.pth
+│   ├── segmamba_train_log.txt
+│   └── segmamba_test_results.txt
 │
-├── predictions/                   # Test-set prediction arrays
-│   └── brain_001.npy … brain_037.npy
+├── predictions/                   # Test-set .npy arrays (37 cases)
 │
-└── visualizations/                # Side-by-side MRI | Pred CT | Real CT
+└── visualizations/                # Side-by-side MRI | Pred CT | GT CT (37 PNGs)
     ├── brain_001_comparison.png
     └── …  brain_037_comparison.png
 ```
 
-> Shared source code lives in [`../src/`](../src/) — `models.py`, `train.py`, `evaluate.py`, `dataset.py`, `losses.py`, `visualize.py`, `dosometric.py`.
+> Shared source code: [`../src/`](../src/) — `models.py`, `train.py`, `evaluate.py`, `dataset.py`, `losses.py`, `visualize.py`, `dosometric.py`
 
 ---
 
-## Architecture
+## End-to-End Architecture
 
-SegMamba follows a 4-level symmetric U-Net. Each encoder/decoder stage uses a **SegMambaBlock**: residual CNN feature extraction followed by a Mamba SSM scan over the spatial tokens. Skip connections use standard concatenation (no attention gating).
+```mermaid
+flowchart TD
+    Input["MRI Input · (1, 64, 192, 192)"]
+    Input --> Stem["Stem · 2× ConvNormAct\n1 → 32 ch"]
 
+    Stem --> E1["Enc1 · SegMambaBlock\n32 ch · full res"]
+    E1   --> D1["Down1 · Stride-2 Conv"]
+    D1   --> E2["Enc2 · SegMambaBlock\n64 ch · ½ res"]
+    E2   --> D2["Down2 · Stride-2 Conv"]
+    D2   --> E3["Enc3 · SegMambaBlock\n128 ch · ¼ res"]
+    E3   --> D3["Down3 · Stride-2 Conv"]
+    D3   --> E4["Enc4 · Bottleneck · SegMambaBlock\n256 ch · ⅛ res"]
+
+    E4   --> U3["Up3 · Trilinear + Conv"]
+    E3   -->|skip concat| U3
+    U3   --> Dec3["Dec3 · SegMambaBlock · 128 ch"]
+
+    Dec3 --> U2["Up2 · Trilinear + Conv"]
+    E2   -->|skip concat| U2
+    U2   --> Dec2["Dec2 · SegMambaBlock · 64 ch"]
+
+    Dec2 --> U1["Up1 · Trilinear + Conv"]
+    E1   -->|skip concat| U1
+    U1   --> Dec1["Dec1 · SegMambaBlock · 32 ch"]
+
+    Dec1 --> Head["Output Head · Conv3d + Tanh"]
+    Head --> Out["Synthetic CT · (1, 64, 192, 192)"]
 ```
-MRI (1, D, H, W)
-    └─ Stem (ConvNormAct × 2)
-        ├─ Enc1 ──Down1──> Enc2 ──Down2──> Enc3 ──Down3──> Enc4 (bottleneck)
-        │                                                        ↓
-        └──────────────────────────────────────────────  Up3 + skip(Enc3) → Dec3
-                                                         Up2 + skip(Enc2) → Dec2
-                                                         Up1 + skip(Enc1) → Dec1
-                                                                  ↓
-                                                          Head (Conv3d + Tanh)
-                                                                  ↓
-                                                         Synthetic CT (1, D, H, W)
+
+### SegMambaBlock (per encoder/decoder stage)
+
+```mermaid
+flowchart LR
+    In["Input\n(B, C, D, H, W)"] --> CNN["ResBlock\nGroupNorm + ReLU + Conv3d"]
+    CNN --> Flat["Flatten spatial\n→ (B, D·H·W, C)"]
+    Flat --> SSM["Mamba SSM\nd_state = 16"]
+    SSM --> Reshape["Reshape\n→ (B, C, D, H, W)"]
+    Reshape --> Add["+ Residual skip"]
+    Add --> Out["Output\n(B, C, D, H, W)"]
 ```
 
-| Hyperparameter | Value |
+---
+
+## Training Pipeline
+
+```mermaid
+flowchart LR
+    Data["brain_npy\n(MRI + CT pairs)\nshape: (2, 192, 192, 96)"]
+    Data --> Patch["Random Patch\n64 × 192 × 192"]
+    Patch --> Model["SegMamba\n~18 M params"]
+    Model --> Loss["Loss function\nepoch < 100 → wMAE\nepoch ≥ 100 → wMAE + SSIM + AFP"]
+    Loss --> Opt["Adam\nβ₁=0.9 β₂=0.999 ε=1e-8\nlr₀ = 5 × 10⁻⁴"]
+    Opt --> Sched["CosineAnnealingLR\nT_max = 500 · η_min = 1 × 10⁻⁶"]
+    Sched -->|"next epoch"| Model
+```
+
+### Hyperparameters
+
+| Parameter | Value |
 |---|---|
-| Base channels | 32 → 64 → 128 → 256 |
-| SSM state dim (`d_state`) | 16 |
+| Optimizer | Adam (β₁=0.9, β₂=0.999) |
+| Initial LR | 5 × 10⁻⁴ |
+| LR schedule | Cosine annealing · T_max=500 · η_min=1×10⁻⁶ |
+| Epochs | 500 |
+| Batch size | 2 |
 | Patch size | (64, 192, 192) D×H×W |
+| Base channels | 32 → 64 → 128 → 256 |
+| SSM state dim | 16 |
 | Parameters | ~18 M |
+| Mixed precision | AMP (fp16) |
+| Checkpoint save | Every 50 epochs + best val |
+
+### Loss Schedule
+
+| Phase | Epochs | Components | HU tissue weights |
+|---|---|---|---|
+| Warmup | 1 – 99 | wMAE | Bone 3.0 · Soft tissue 1.5 · Air 0.5 |
+| Full | 100 – 500 | wMAE + SSIM + AFP | same |
+
+**AFP** = Anatomical Feature Preservation loss on high-gradient regions.
 
 ---
 
-## Training
+## Running
 
 ```bash
 # From inside SegMamba/
@@ -82,18 +133,7 @@ python ../src/train.py \
     --save_dir ./checkpoints
 ```
 
-### Loss Schedule
-
-| Phase | Epochs | Loss Components |
-|---|---|---|
-| Warmup | 1 – 99 | Weighted HU-aware MAE |
-| Full | 100 – 500 | wMAE + SSIM + AFP |
-
-HU tissue weights: **Bone 3.0 · Soft tissue 1.5 · Air 0.5**
-
----
-
-## Evaluation
+### Evaluate
 
 ```bash
 bash run_eval.sh
@@ -110,7 +150,7 @@ python ../src/evaluate.py \
 
 ## Results
 
-### Test-Set Metrics
+### Image Quality (37 test cases)
 
 | Metric | Score | Std Dev |
 |---|---|---|
@@ -135,26 +175,18 @@ python ../src/evaluate.py \
 
 ---
 
-## Visualizations
+## Sample Results
 
-Training dashboard at epoch 500:
+Best test case (brain_005 — PSNR 26.40 dB):
 
-![Training Dashboard epoch 500](checkpoints/visuals/dashboard_epoch_500.png)
+![SegMamba brain_005](visualizations/brain_005_comparison.png)
 
-Test-set comparison — MRI · Predicted CT · Ground-truth CT:
+![SegMamba brain_010](visualizations/brain_010_comparison.png)
 
-![Brain 001](visualizations/brain_001_comparison.png)
-![Brain 002](visualizations/brain_002_comparison.png)
-![Brain 003](visualizations/brain_003_comparison.png)
+![SegMamba brain_020](visualizations/brain_020_comparison.png)
 
 > All 37 test comparisons: [`visualizations/`](visualizations/)
 
----
+Final epoch training dashboard:
 
-## Model Weights
-
-| File | Notes |
-|---|---|
-| `checkpoints/segmamba_best.pth` | Best validation checkpoint — use for inference |
-| `checkpoints/segmamba_epoch500.pth` | Final epoch |
-| `checkpoints/segmamba_epoch*.pth` | Intermediate saves every 50 epochs |
+![Final epoch dashboard](results/dashboard_final.png)
