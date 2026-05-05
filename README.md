@@ -1,6 +1,6 @@
 # MRI-to-Synthetic-CT Synthesis — Research Repository
 
-This repository contains **six deep-learning architectures** for **3D MRI → Synthetic CT synthesis** targeting MRI-only radiotherapy planning. Four Mamba-based regression models, one pretrained-encoder diffusion model, and one Diffusion UMamba model are implemented and evaluated.
+This repository contains **eight deep-learning architectures** for **3D MRI → Synthetic CT synthesis** targeting MRI-only radiotherapy planning. Four Mamba-based regression models, one pretrained-encoder diffusion model, one Diffusion UMamba model, and two GAN-based models (Pix2Pix and UNIT) are implemented and evaluated.
 
 ---
 
@@ -15,6 +15,7 @@ This repository contains **six deep-learning architectures** for **3D MRI → Sy
   - [TriPlane Mamba](#4-triplane-mamba-triplanemamba-unet)
   - [Pretrained Encoder + Hybrid Diffusion](#5-pretrained-encoder--hybrid-diffusion)
   - [Diffusion UMamba](#6-diffusion-umamba)
+  - [GAN Approaches — Pix2Pix & UNIT](#7-gan-approaches--pix2pix--unit)
 - [Dataset](#dataset)
 - [Results Summary](#results-summary)
 - [Dosimetric Analysis](#dosimetric-analysis)
@@ -32,6 +33,8 @@ Synthetic CT (sCT) generation from MRI avoids the need for a separate CT scan in
 4. **TriPlane Mamba** — 3D U-Net with 2D planar Mamba scans + multi-scale depth convolutions
 5. **Pretrained Encoder + Hybrid Diffusion** — Task-aware MRI semantic encoder (Stage 1) + frozen-encoder cross-attention diffusion (Stage 2)
 6. **Diffusion UMamba** — Conditional DDPM with UMamba as the noise-prediction backbone (replaces SwinViT)
+7. **Pix2Pix** — Supervised paired image-to-image translation with U-Net generator + PatchGAN discriminator (2D slice-based)
+8. **UNIT** — Unsupervised shared-latent-space translation via paired encoder-generator + cycle-consistency + KL divergence (2D slice-based)
 
 All models are trained on brain MRI / CT pairs and evaluated with MAE, PSNR, SSIM, and clinical dosimetric metrics (tissue MAE, RED, Gamma-Index).
 
@@ -155,6 +158,15 @@ All models are trained on brain MRI / CT pairs and evaluated with MAE, PSNR, SSI
 │   ├── notebooks/
 │   │   └── MC-IDDPM main.ipynb
 │   └── data/  MRI_to_CT_brain_for_dosimetric/
+│
+├── gan_approaches/                                    ← GAN-based 2D slice translation models
+│   ├── README.md
+│   ├── src/model/Pix2Pix/                             # U-Net generator + PatchGAN discriminator
+│   ├── src/model/Unit/                                # Shared-latent-space encoder-generator pairs
+│   ├── configs/                                       # YAML train/test configs
+│   ├── scripts/                                       # Dosimetric + volumetric PSNR evaluation
+│   ├── models/  pix2pix/0/ + unit/0/                 # Saved checkpoints (fold 0)
+│   └── results/                                       # best_test_result_pix2pix/unit.png + dosimetric CSVs
 │
 ├── mc_ddpm_data/                                      ← processed dataset (NPY + NIfTI)
 │   ├── brain/                                         # Brain MRI / CT pairs (NIfTI)
@@ -291,6 +303,29 @@ Conditional **DDPM** with a **UMamba backbone** as the noise predictor. Takes a 
 
 ---
 
+### 7. GAN Approaches — Pix2Pix & UNIT
+
+> **[gan_approaches/](gan_approaches/)**
+
+Two **paired and unpaired image-to-image translation** models operating on **2D axial slices** extracted from 3D brain volumes, evaluated under 5-fold cross-validation. **Pix2Pix** (supervised): U-Net generator (64→512 ch) + PatchGAN discriminator, L1 + BCE loss (λ=100), Adam β₁=0.5 · LR 2×10⁻⁴ · 40 epochs. **UNIT** (unsupervised): paired encoder-generator with shared residual block, cycle-consistency + KL divergence, Adam · LR 1×10⁻⁴ · 40 epochs.
+
+**Pix2Pix** — best test case (sample 031, PSNR 22.08 dB) · MRI Input · Predicted CT · Ground Truth CT · Absolute Error:
+
+![Pix2Pix best test result](gan_approaches/results/best_test_result_pix2pix.png)
+
+**UNIT** — best test case (sample 018, PSNR 20.26 dB) · MRI Input · Predicted CT · Ground Truth CT · Absolute Error:
+
+![UNIT best test result](gan_approaches/results/best_test_result_unit.png)
+
+| Model | PSNR ↑ | SSIM ↑ | Gamma (1%/1mm) ↑ |
+|---|---|---|---|
+| Pix2Pix | 22.08 dB | 0.8697 | 28.44% |
+| UNIT | 20.26 dB | 0.8268 | 23.61% |
+
+> Both GAN models operate on 2D slices and lack 3D volumetric context — low Gamma values reflect the HU calibration inconsistency inherent to slice-by-slice synthesis in a dosimetric setting.
+
+---
+
 ## Dataset
 
 ### `mc_ddpm_data/` — Pre-processed Training Data
@@ -323,6 +358,8 @@ Individual patient folders, each containing `ct.nii.gz`, `mr.nii.gz`, `mask.nii.
 | **TriPlane Mamba** | **0.0445 ± 0.0074** | **25.79 dB** | **0.8561** |
 | Pretrained Enc. + Diffusion | 0.0492 ± 0.0077 | 24.12 dB | 0.8037 |
 | Diffusion UMamba | — | 22.49 dB ± 0.82 | 0.7678 ± 0.0318 |
+| Pix2Pix (GAN) | — | 22.08 dB | 0.8697 |
+| UNIT (GAN) | — | 20.26 dB | 0.8268 |
 
 ### Dosimetric Summary (Gamma-Index)
 
@@ -333,8 +370,10 @@ Individual patient folders, each containing `ct.nii.gz`, `mr.nii.gz`, `mask.nii.
 | TriAxial Mamba | 88.71% | 98.83% |
 | TriPlane Mamba | 90.61% ✓ | 99.14% |
 | Diffusion UMamba | 90.52% ✓ | 99.03% |
+| Pix2Pix (GAN) | 28.44% | 34.28% |
+| UNIT (GAN) | 23.61% | 29.56% |
 
-> ✓ = crosses the clinical 90% threshold for the strict 1%/1mm Gamma criterion.
+> ✓ = crosses the clinical 90% threshold for the strict 1%/1mm Gamma criterion. GAN models (2D slice-based) do not meet this threshold due to lack of volumetric 3D context.
 
 ---
 
@@ -415,3 +454,8 @@ conda env create -f mamba_approach/triplane_mamba/environment.yml
 | Diffusion UMamba training | [diffusion_umamba/main_umamba_diffusion.py](diffusion_umamba/main_umamba_diffusion.py) |
 | Diffusion UMamba dosimetric CSV | [diffusion_umamba/inference_results/dosimetric_metrics_all.csv](diffusion_umamba/inference_results/dosimetric_metrics_all.csv) |
 | Diffusion UMamba report | [diffusion_umamba/Diffusion_umamba_report.md](diffusion_umamba/Diffusion_umamba_report.md) |
+| GAN approaches README | [gan_approaches/README.md](gan_approaches/README.md) |
+| Pix2Pix training script | [gan_approaches/src/model/Pix2Pix/train_kfold.py](gan_approaches/src/model/Pix2Pix/train_kfold.py) |
+| UNIT training script | [gan_approaches/src/model/Unit/train_kfold.py](gan_approaches/src/model/Unit/train_kfold.py) |
+| Pix2Pix dosimetric CSV | [gan_approaches/results/dosimetric_metrics_pix2pix.csv](gan_approaches/results/dosimetric_metrics_pix2pix.csv) |
+| UNIT dosimetric CSV | [gan_approaches/results/dosimetric_metrics_unit.csv](gan_approaches/results/dosimetric_metrics_unit.csv) |

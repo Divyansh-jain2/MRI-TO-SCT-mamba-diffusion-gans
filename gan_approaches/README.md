@@ -44,7 +44,11 @@ gan_approaches/
 │   ├── pix2pix/0/                 # Fold 0 weights
 │   └── unit/0/
 │
-├── results/                       # Training outputs and test predictions
+├── results/                       # Test predictions and evaluation outputs
+│   ├── best_test_result_pix2pix.png
+│   ├── best_test_result_unit.png
+│   ├── dosimetric_metrics_pix2pix.csv
+│   └── dosimetric_metrics_unit.csv
 ├── logs/                          # Training logs
 └── scripts/                       # Evaluation and export utilities
     ├── evaluate_dosimetry_gan.py
@@ -247,6 +251,42 @@ python scripts/evaluate_pix2pix_volume_psnr.py
 python scripts/evaluate_unit_volume_psnr.py
 python scripts/evaluate_dosimetry_gan.py
 ```
+
+---
+
+## Results
+
+### Image Quality
+
+| Model | PSNR ↑ | SSIM ↑ |
+|---|---|---|
+| Pix2Pix | 22.08 dB | 0.8697 |
+| UNIT | 20.26 dB | 0.8268 |
+
+### Dosimetric Performance
+
+| Metric | Pix2Pix | UNIT |
+|---|---|---|
+| Air MAE | 822.65 HU | 828.76 HU |
+| Soft Tissue MAE | 24.01 HU | 36.73 HU |
+| Bone MAE | 791.32 HU | 781.42 HU |
+| RED MAE | 0.6103 | 0.6581 |
+| Gamma (1% / 1mm) | 28.44% | 23.61% |
+| Gamma (2% / 2mm) | 34.28% | 29.56% |
+
+> Both GAN models operate on **2D axial slices** extracted from 3D volumes. The low Gamma-Index values and high Bone/Air MAE reflect the absence of volumetric 3D context — slice-by-slice synthesis cannot enforce the HU calibration consistency required for reliable dosimetric planning.
+
+### Sample Results
+
+**Pix2Pix** — best test case (sample 031, PSNR 22.08 dB) · MRI Input · Predicted CT · Ground Truth CT · Absolute Error:
+
+![Pix2Pix best test result](results/best_test_result_pix2pix.png)
+
+**UNIT** — best test case (sample 018, PSNR 20.26 dB) · MRI Input · Predicted CT · Ground Truth CT · Absolute Error:
+
+![UNIT best test result](results/best_test_result_unit.png)
+
+Full dosimetric metrics: [`results/dosimetric_metrics_pix2pix.csv`](results/dosimetric_metrics_pix2pix.csv) · [`results/dosimetric_metrics_unit.csv`](results/dosimetric_metrics_unit.csv)
 
 ---
 
