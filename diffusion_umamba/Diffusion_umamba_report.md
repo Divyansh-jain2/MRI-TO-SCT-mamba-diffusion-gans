@@ -31,60 +31,11 @@ The generative framework is a conditional Monte Carlo Improved DDPM.
 The architecture merges the hierarchical spatial encoding of a **U-Net** with the sequential modeling power of **Mamba** and the temporal conditioning of **Diffusion**.
 
 ### 3.1 The Global U-Mamba Diffusion Flow
-The diagram below illustrates the exact data traversal inside the `UMamba` framework for a single `64x64x4` patch chunk. 
+The exact data traversal inside the `UMamba` framework for a single `64x64x4` patch chunk is summarised below.
 
 - **Input:** It takes a 2-channel tensor (1 channel for the guiding MRI, 1 channel for the noisy CT at timestep $t$).
 - **Time Conditioning:** The scalar timestep $t$ is projected into a high-dimensional sinusoidal embedding, which is injected into *every single UMamba block* across the Encoder, Bottleneck, and Decoder.
 - **Hierarchical Features:** The network uses Strided Convolutions (`Down`) to compress the spatial resolution while increasing channels, extracting deep semantic features. Transposed Convolutions (`ConvTranspose`) are used to upscale back to the original resolution.
-
-```mermaid
-graph TD
-    classDef diffuse fill:#f9d0c4,stroke:#333,stroke-width:2px,color:#000;
-    classDef mamba fill:#c4e3f9,stroke:#333,stroke-width:2px,color:#000;
-    classDef embed fill:#eec4f9,stroke:#333,stroke-width:2px,color:#000;
-
-    T(["Timestep t"]):::embed --> TEmb["Sinusoidal Embed + MLP\ndim=256"]:::embed
-
-    MRI(["MRI Condition · 1ch"]):::diffuse --> Concat["Concat → 2ch"]
-    CT(["Noisy CT x_t · 1ch"]):::diffuse --> Concat
-    Concat --> Stem["Stem ConvNormAct · ch=64"]:::mamba
-
-    subgraph ENC["Encoder Path"]
-        E1["UMambaBlock · ch=64"]:::mamba
-        E1 --> D1["Down ×2,2,2 → ch=128"]:::mamba
-        D1 --> E2["UMambaBlock · ch=128"]:::mamba
-        E2 --> D2["Down ×2,2,1 → ch=256"]:::mamba
-        D2 --> E3["UMambaBlock · ch=256"]:::mamba
-        E3 --> D3["Down ×2,2,1 → ch=512"]:::mamba
-    end
-
-    subgraph BOT["Bottleneck"]
-        E4["UMambaBlock · ch=512"]:::mamba
-    end
-
-    subgraph DEC["Decoder Path"]
-        U3["ConvTranspose → ch=256"]:::mamba
-        U3 --> Dec3["UMambaBlock · ch=512→256"]:::mamba
-        Dec3 --> U2["ConvTranspose → ch=128"]:::mamba
-        U2 --> Dec2["UMambaBlock · ch=256→128"]:::mamba
-        Dec2 --> U1["ConvTranspose → ch=64"]:::mamba
-        U1 --> Dec1["UMambaBlock · ch=128→64"]:::mamba
-    end
-
-    Stem --> E1
-    D3 --> E4
-    E4 --> U3
-    Dec1 --> Head["Head: Conv 1×1×1"]:::mamba
-    Head --> Out(["Output · 2ch\nPredicted Mean & Variance"]):::diffuse
-
-    TEmb -. "time cond." .-> ENC
-    TEmb -. "time cond." .-> BOT
-    TEmb -. "time cond." .-> DEC
-
-    E1 -. "skip connection" .-> Dec1
-    E2 -. "skip connection" .-> Dec2
-    E3 -. "skip connection" .-> Dec3
-```
 
 ### 3.2 Inside the UMamba Block (The Core Engine)
 Instead of standard CNN convolutions or Vision Transformer Attention, every feature map in the network goes through a `UMambaBlock`. 
@@ -93,21 +44,6 @@ What happens here?
 1. **Residual Convolution:** Extracts local spatial features.
 2. **Time Shift:** Injects the current diffusion timestep $t$ by shifting the channel values so the block "knows" the current noise level.
 3. **MambaBlock3D:** Flattens the 3D volume, runs a bidirectional Mamba (SSM) scan to gather infinite-context global information, and reconstructs the 3D volume.
-
-```mermaid
-graph LR
-    classDef core fill:#e2f9c4,stroke:#333,stroke-width:2px,color:#000;
-    classDef time fill:#eec4f9,stroke:#333,stroke-width:2px,color:#000;
-
-    Input(["Input\nFeature"]):::core --> ResConv["ResConvBlock\n(Local Features)"]:::core
-    TEmb(["Time\nEmbedding"]):::time --> Shift["SiLU + Linear\n(Channel Shift)"]:::time
-
-    ResConv & Shift --> Add(["⊕ Combine"])
-
-    Add --> Mamba["MambaBlock3D\n(Bidirectional Global SSM)"]:::core
-    Mamba --> Norm["InstanceNorm3d"]:::core
-    Norm --> Out(["Output\nFeature"]):::core
-```
 
 ---
 

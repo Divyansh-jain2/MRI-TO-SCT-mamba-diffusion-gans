@@ -9,41 +9,7 @@ Unlike diffusion-based variants, this model performs a direct forward prediction
 
 The network takes a single-channel MRI input `(Batch, 1, Depth, Height, Width)` and outputs a single-channel predicted CT volume `(Batch, 1, Depth, Height, Width)` normalized to the range `[-1, 1]`.
 
-```mermaid
-graph TD
-    Input[Input MRI] --> Stem[Stem ConvNormAct]
-    Stem --> E1[UMambaBlock Stage 1]
-    
-    E1 --> D1[Downsample Conv s=2]
-    D1 --> E2[UMambaBlock Stage 2]
-    
-    E2 --> D2[Downsample Conv s=2]
-    D2 --> E3[UMambaBlock Stage 3]
-    
-    E3 --> D3[Downsample Conv s=2]
-    D3 --> E4[UMambaBlock Bottleneck]
-    
-    E4 --> Up3[ConvTranspose3d Upsample]
-    E3 --> Concat3[Concatenate]
-    Up3 --> Concat3
-    Concat3 --> Dec3[UMambaBlock Stage 3]
-    Dec3 --> Proj3[ConvNormAct Projection]
-    
-    Proj3 --> Up2[ConvTranspose3d Upsample]
-    E2 --> Concat2[Concatenate]
-    Up2 --> Concat2
-    Concat2 --> Dec2[UMambaBlock Stage 2]
-    Dec2 --> Proj2[ConvNormAct Projection]
-    
-    Proj2 --> Up1[ConvTranspose3d Upsample]
-    E1 --> Concat1[Concatenate]
-    Up1 --> Concat1
-    Concat1 --> Dec1[UMambaBlock Stage 1]
-    Dec1 --> Proj1[ConvNormAct Projection]
-    
-    Proj1 --> Head[Head: Conv3d + Tanh]
-    Head --> Output[Predicted Synthetic CT]
-```
+![U-Mamba Architecture Overview](../../images/umamba.jpeg)
 
 ### 2.1 Core Processing Unit: `UMambaBlock`
 This custom block operates sequentially to extract both local textural features and global context:

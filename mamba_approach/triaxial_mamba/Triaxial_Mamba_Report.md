@@ -19,42 +19,7 @@ The TriAxial Mamba approach aims to capture 3D global context efficiently while 
 
 The overall U-Net topology and the deep supervision heads are illustrated below:
 
-```mermaid
-graph TD
-    MRI["MRI Input (1, D, H, W)"] --> Stem["Stem: ConvNormAct x2"]
-    
-    Stem --> E1["Enc1: TriMambaEncoderBlock"]
-    E1 --> D1["Down1: Conv (Stride 2)"]
-    D1 --> E2["Enc2: TriMambaEncoderBlock"]
-    E2 --> D2["Down2: Conv (Stride 2)"]
-    D2 --> E3["Enc3: TriMambaEncoderBlock"]
-    E3 --> D3["Down3: Conv (Stride 2)"]
-    D3 --> E4["Enc4 (Bottleneck): TriMambaEncoderBlock"]
-    
-    E4 --> U3["Up3: F.interpolate + Conv3d"]
-    U3 --> C3{"Concat"}
-    E3 --> CBAM3["CBAM3D"] -.-> C3
-    C3 --> Dec3["Dec3: TriMambaEncoderBlock"]
-    Dec3 --> P3["Proj3: ConvNormAct"]
-    
-    P3 --> U2["Up2: F.interpolate + Conv3d"]
-    U2 --> C2{"Concat"}
-    E2 --> CBAM2["CBAM3D"] -.-> C2
-    C2 --> Dec2["Dec2: TriMambaEncoderBlock"]
-    Dec2 --> P2["Proj2: ConvNormAct"]
-    
-    P2 --> U1["Up1: F.interpolate + Conv3d"]
-    U1 --> C1{"Concat"}
-    E1 --> CBAM1["CBAM3D"] -.-> C1
-    C1 --> Dec1["Dec1: TriMambaEncoderBlock"]
-    Dec1 --> P1["Proj1: ConvNormAct"]
-    
-    P1 --> Head["Head: Conv3d + Tanh"]
-    Head --> CT["CT Output (1, D, H, W)"]
-    
-    Dec2 -.-> Aux2["Auxiliary Head 2"]
-    Dec3 -.-> Aux3["Auxiliary Head 3"]
-```
+![TriMamba-UNet V2 Overall Architecture](../../images/trimamba_vnet.png)
 
 ---
 

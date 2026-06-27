@@ -33,61 +33,11 @@ SegMamba/
 
 ## End-to-End Architecture
 
-```mermaid
-flowchart TD
-    Input["MRI Input · (1, 64, 192, 192)"]
-    Input --> Stem["Stem · 2× ConvNormAct\n1 → 32 ch"]
-
-    Stem --> E1["Enc1 · SegMambaBlock\n32 ch · full res"]
-    E1   --> D1["Down1 · Stride-2 Conv"]
-    D1   --> E2["Enc2 · SegMambaBlock\n64 ch · ½ res"]
-    E2   --> D2["Down2 · Stride-2 Conv"]
-    D2   --> E3["Enc3 · SegMambaBlock\n128 ch · ¼ res"]
-    E3   --> D3["Down3 · Stride-2 Conv"]
-    D3   --> E4["Enc4 · Bottleneck · SegMambaBlock\n256 ch · ⅛ res"]
-
-    E4   --> U3["Up3 · Trilinear + Conv"]
-    E3   -->|skip concat| U3
-    U3   --> Dec3["Dec3 · SegMambaBlock · 128 ch"]
-
-    Dec3 --> U2["Up2 · Trilinear + Conv"]
-    E2   -->|skip concat| U2
-    U2   --> Dec2["Dec2 · SegMambaBlock · 64 ch"]
-
-    Dec2 --> U1["Up1 · Trilinear + Conv"]
-    E1   -->|skip concat| U1
-    U1   --> Dec1["Dec1 · SegMambaBlock · 32 ch"]
-
-    Dec1 --> Head["Output Head · Conv3d + Tanh"]
-    Head --> Out["Synthetic CT · (1, 64, 192, 192)"]
-```
-
-### SegMambaBlock (per encoder/decoder stage)
-
-```mermaid
-flowchart LR
-    In["Input\n(B, C, D, H, W)"] --> CNN["ResBlock\nGroupNorm + ReLU + Conv3d"]
-    CNN --> Flat["Flatten spatial\n→ (B, D·H·W, C)"]
-    Flat --> SSM["Mamba SSM\nd_state = 16"]
-    SSM --> Reshape["Reshape\n→ (B, C, D, H, W)"]
-    Reshape --> Add["+ Residual skip"]
-    Add --> Out["Output\n(B, C, D, H, W)"]
-```
+![SegMamba Architecture Overview](../../images/segmamba.png)
 
 ---
 
 ## Training Pipeline
-
-```mermaid
-flowchart LR
-    Data["brain_npy\n(MRI + CT pairs)\nshape: (2, 192, 192, 96)"]
-    Data --> Patch["Random Patch\n64 × 192 × 192"]
-    Patch --> Model["SegMamba\n~18 M params"]
-    Model --> Loss["Loss function\nepoch < 100 → wMAE\nepoch ≥ 100 → wMAE + SSIM + AFP"]
-    Loss --> Opt["Adam\nβ₁=0.9 β₂=0.999 ε=1e-8\nlr₀ = 5 × 10⁻⁴"]
-    Opt --> Sched["CosineAnnealingLR\nT_max = 500 · η_min = 1 × 10⁻⁶"]
-    Sched -->|"next epoch"| Model
-```
 
 ### Hyperparameters
 

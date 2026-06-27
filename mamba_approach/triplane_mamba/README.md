@@ -40,83 +40,21 @@ triplane_mamba/
 
 ## End-to-End Architecture
 
-```mermaid
-flowchart TD
-    Input["MRI Input · (1, 64, 192, 192)"]
-    Input --> Stem["Stem · 2× ConvNormAct\n1 → 32 ch"]
-
-    Stem --> E1["Enc1 · TriPlaneMambaBlock\n32 ch · full res"]
-    E1   --> D1["Down1 · Stride-2 Conv"]
-    D1   --> E2["Enc2 · TriPlaneMambaBlock\n64 ch · ½ res"]
-    E2   --> D2["Down2 · Stride-2 Conv"]
-    D2   --> E3["Enc3 · TriPlaneMambaBlock\n128 ch · ¼ res"]
-    E3   --> D3["Down3 · Stride-2 Conv"]
-    D3   --> E4["Enc4 · Bottleneck · TriPlaneMambaBlock\n256 ch · ⅛ res"]
-
-    E4   --> U3["Up3 · Trilinear + Conv"]
-    E3   -->|"CBAM3D → skip concat"| U3
-    U3   --> Dec3["Dec3 · TriPlaneMambaBlock · 128 ch"]
-    Dec3 --> Aux3["Aux Head 3\n(deep supervision · train only)"]
-
-    Dec3 --> U2["Up2 · Trilinear + Conv"]
-    E2   -->|"CBAM3D → skip concat"| U2
-    U2   --> Dec2["Dec2 · TriPlaneMambaBlock · 64 ch"]
-    Dec2 --> Aux2["Aux Head 2\n(deep supervision · train only)"]
-
-    Dec2 --> U1["Up1 · Trilinear + Conv"]
-    E1   -->|"CBAM3D → skip concat"| U1
-    U1   --> Dec1["Dec1 · TriPlaneMambaBlock · 32 ch"]
-
-    Dec1 --> Head["Output Head · Conv3d + Tanh"]
-    Head --> Out["Synthetic CT · (1, 64, 192, 192)"]
-```
+![TriPlane Mamba UNet Architecture](../../images/trimamba_unet.png)
 
 ### TriPlaneMambaBlock — dual-branch design
 
-```mermaid
-flowchart TD
-    In["Input · (B, C, D, H, W)"]
-
-    In --> Local["Branch 1 · MultiScaleDepthConv\n4× dilated Conv3d along Depth\ndilations d = 1, 2, 4, 8\n→ concat → project → C channels"]
-
-    In --> HW["HW plane (Axial)\nreshape (B·D, H·W, C)\n→ BiMamba → restore"]
-    In --> DW["DW plane (Coronal)\nreshape (B·H, D·W, C)\n→ BiMamba → restore"]
-    In --> DH["DH plane (Sagittal)\nreshape (B·W, D·H, C)\n→ BiMamba → restore"]
-
-    HW & DW & DH --> FuseG["Fusion Conv3d\ny_hw + y_dw + y_dh → C channels\nBranch 2 · Global"]
-
-    Local & FuseG --> Add["Output = Residual + Local + Global"]
-    Add --> Out["Output · (B, C, D, H, W)"]
-```
+![TriPlane Mamba Block](../../images/triplane_mamba_block.png)
 
 > **Why 2D planes instead of 1D axes?** A single HW-plane scan captures both spatial dimensions of a slice simultaneously. The three planes together cover the full 3D structure with no dimension left unattended — stronger context than 1D axis scans at comparable sequence length.
 
 ### CBAM3D on skip connections
 
-```mermaid
-flowchart LR
-    Enc["Encoder feature\n(B, C, D, H, W)"]
-    Enc --> CA["Channel Attention\nGlobalAvgPool + MaxPool + FC + Sigmoid"]
-    CA  --> SA["Spatial Attention\nChan-AvgPool + Chan-MaxPool → Conv → Sigmoid"]
-    SA  --> Filtered["Attention-gated skip"]
-    Filtered --> Concat["Concat with decoder feature"]
-```
+![CBAM3D Attention-Gated Skip Connection](../../images/cbam_3d.png)
 
 ---
 
 ## Training Pipeline
-
-```mermaid
-flowchart LR
-    Data["brain_npy\n(MRI + CT pairs)"]
-    Data --> Patch["Random Patch\n64 × 192 × 192"]
-    Patch --> Aug["Test-Time Aug\n(flip · rot · enabled at eval)"]
-    Aug --> Model["TriPlane Mamba\n~20–22 M params\nGrad Checkpointing ON"]
-    Model --> Loss["Loss\nepoch < 100 → wMAE\nepoch ≥ 100 → wMAE + SSIM + AFP\n+ deep supervision weights 0.4 · 0.2"]
-    Loss --> Opt["Adam\nβ₁=0.9 β₂=0.999\nlr₀ = 5 × 10⁻⁴"]
-    Opt --> Sched["CosineAnnealingLR\nT_max = 500 · η_min = 1 × 10⁻⁶"]
-    Sched -->|"next epoch"| Model
-```
 
 ### Hyperparameters
 

@@ -7,31 +7,7 @@
 
 The SegMamba architecture utilizes a standard symmetric **U-Net** topology with an Encoder, a Bottleneck, and a Decoder across 4 distinct spatial resolution stages.
 
-```mermaid
-graph TD
-    Input[MRI Input] --> E1[Encoder Stage 1]
-    E1 --> D1_Down[Downsample]
-    D1_Down --> E2[Encoder Stage 2]
-    E2 --> D2_Down[Downsample]
-    D2_Down --> E3[Encoder Stage 3]
-    E3 --> D3_Down[Downsample]
-    D3_Down --> E4[Encoder Stage 4 bottleneck]
-    
-    E4 --> U3[Upsample & Concat]
-    E3 -.Skip Connection.-> U3
-    U3 --> D3[Decoder Stage 3]
-    
-    D3 --> U2[Upsample & Concat]
-    E2 -.Skip Connection.-> U2
-    U2 --> D2[Decoder Stage 2]
-    
-    D2 --> U1[Upsample & Concat]
-    E1 -.Skip Connection.-> U1
-    U1 --> D1[Decoder Stage 1]
-    
-    D1 --> Head[Head: Conv3d + Tanh]
-    Head --> Output[Synthetic CT]
-```
+![SegMamba Architecture Overview](../../images/segmamba.png)
 
 ### 2.1 Core Building Blocks
 The network relies on three primary repeating blocks:

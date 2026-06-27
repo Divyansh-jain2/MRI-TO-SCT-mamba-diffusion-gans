@@ -40,86 +40,19 @@ triaxial_mamba/
 
 ## End-to-End Architecture
 
-```mermaid
-flowchart TD
-    Input["MRI Input · (1, 64, 192, 192)"]
-    Input --> Stem["Stem · 2× ConvNormAct\n1 → 32 ch"]
-
-    Stem --> E1["Enc1 · TriAxialMambaBlock\n32 ch · full res"]
-    E1   --> D1["Down1 · Stride-2 Conv"]
-    D1   --> E2["Enc2 · TriAxialMambaBlock\n64 ch · ½ res"]
-    E2   --> D2["Down2 · Stride-2 Conv"]
-    D2   --> E3["Enc3 · TriAxialMambaBlock\n128 ch · ¼ res"]
-    E3   --> D3["Down3 · Stride-2 Conv"]
-    D3   --> E4["Enc4 · Bottleneck · TriAxialMambaBlock\n256 ch · ⅛ res"]
-
-    E4   --> U3["Up3 · Trilinear + Conv"]
-    E3   -->|"CBAM3D → skip concat"| U3
-    U3   --> Dec3["Dec3 · TriAxialMambaBlock · 128 ch"]
-    Dec3 --> Aux3["Aux Head 3\n(deep supervision · train only)"]
-
-    Dec3 --> U2["Up2 · Trilinear + Conv"]
-    E2   -->|"CBAM3D → skip concat"| U2
-    U2   --> Dec2["Dec2 · TriAxialMambaBlock · 64 ch"]
-    Dec2 --> Aux2["Aux Head 2\n(deep supervision · train only)"]
-
-    Dec2 --> U1["Up1 · Trilinear + Conv"]
-    E1   -->|"CBAM3D → skip concat"| U1
-    U1   --> Dec1["Dec1 · TriAxialMambaBlock · 32 ch"]
-
-    Dec1 --> Head["Output Head · Conv3d + Tanh"]
-    Head --> Out["Synthetic CT · (1, 64, 192, 192)"]
-```
+![TriMamba-UNet V2 Overall Architecture](../../images/trimamba_vnet.png)
 
 ### TriAxialMambaBlock — per-axis bidirectional scanning
 
-```mermaid
-flowchart TD
-    In["Input · (B, C, D, H, W)"]
-
-    In --> D_fwd["SSM_D_fwd\nscan along Depth axis"]
-    In --> D_bwd["SSM_D_bwd\n← reverse scan"]
-    D_fwd & D_bwd --> Yd["y_d = fwd + bwd"]
-
-    In --> H_fwd["SSM_H_fwd\nscan along Height axis"]
-    In --> H_bwd["SSM_H_bwd\n← reverse scan"]
-    H_fwd & H_bwd --> Yh["y_h = fwd + bwd"]
-
-    In --> W_fwd["SSM_W_fwd\nscan along Width axis"]
-    In --> W_bwd["SSM_W_bwd\n← reverse scan"]
-    W_fwd & W_bwd --> Yw["y_w = fwd + bwd"]
-
-    Yd & Yh & Yw --> Fuse["Fusion Conv3d\n[y_d ‖ y_h ‖ y_w] → C channels"]
-    Fuse --> Add["+ Residual skip"]
-    Add --> Out["Output · (B, C, D, H, W)"]
-```
+![TriAxialMambaBlock — Tri-Axial Bidirectional Scanning](../../images/trimamba_block.png)
 
 ### CBAM3D on skip connections
 
-```mermaid
-flowchart LR
-    Enc["Encoder feature\n(B, C, D, H, W)"]
-    Enc --> CA["Channel Attention\nGlobalAvgPool + FC + Sigmoid"]
-    CA  --> SA["Spatial Attention\nAvgPool + MaxPool → Conv → Sigmoid"]
-    SA  --> Filtered["Filtered skip feature"]
-    Filtered --> Concat["Concat with decoder feature"]
-```
+![CBAM3D Attention-Gated Skip Connection](../../images/cbam_3d.png)
 
 ---
 
 ## Training Pipeline
-
-```mermaid
-flowchart LR
-    Data["brain_npy\n(MRI + CT pairs)"]
-    Data --> Patch["Random Patch\n64 × 192 × 192"]
-    Patch --> Aug["Test-Time Aug\n(flip · rot · enabled at eval)"]
-    Aug --> Model["TriAxial Mamba\n~18 M params\nGrad Checkpointing ON"]
-    Model --> Loss["Loss\nepoch < 100 → wMAE\nepoch ≥ 100 → wMAE + SSIM + AFP\n+ deep supervision weights 0.4 · 0.2"]
-    Loss --> Opt["Adam\nβ₁=0.9 β₂=0.999\nlr₀ = 5 × 10⁻⁴"]
-    Opt --> Sched["CosineAnnealingLR\nT_max = 500 · η_min = 1 × 10⁻⁶"]
-    Sched -->|"next epoch"| Model
-```
 
 ### Hyperparameters
 

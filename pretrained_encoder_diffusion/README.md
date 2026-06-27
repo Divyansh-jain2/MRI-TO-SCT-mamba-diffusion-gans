@@ -17,30 +17,13 @@ In the original MC-IDDPM pipeline, the MRI is concatenated directly to the noisy
 | Denoiser input | `[noisy_CT ‖ MRI]` 2-channel | `noisy_CT` + cross-attention from encoder |
 | Stage count | 1 | 2 |
 
----
+### Original MC-IDDPM Baseline (Swin Transformer DDPM)
 
-## Pipeline Overview
+The original baseline concatenates MRI to the noisy CT and denoises with a Swin-Transformer U-Net — the architecture this two-stage approach improves on:
 
-```mermaid
-flowchart TD
-    subgraph Stage1["Stage 1 — MRI Encoder Pretraining (frozen after)"]
-        MRI1["MRI\n(1, H, W, D)"] --> Enc["MRIAutoencoder\n4-level hierarchical encoder"]
-        Enc --> HeadA["Head A · MRI Reconstruction\nL1 + SSIM · weight 0.3 + 0.2"]
-        Enc --> HeadB["Head B · CT Prediction\nL1 · weight 0.5"]
-        HeadA & HeadB --> S1Loss["Loss = 0.5×L1(CT) + 0.3×L1(MRI) + 0.2×SSIM(MRI)"]
-        S1Loss --> S1Out["Save: stage1_encoder/checkpoints/best_mri_encoder.pt\n(encoder weights only · heads discarded)"]
-    end
+![Baseline Diffusion Model — DDPM + Swin](../images/baseline_diffusion.png)
 
-    subgraph Stage2["Stage 2 — Hybrid Diffusion Training (encoder frozen)"]
-        MRI2["MRI"] --> FrozenEnc["Frozen MRI Encoder"]
-        FrozenEnc --> Feats["f₁ 64ch · f₂ 128ch · f₃ 192ch · f₄ 256ch\nglobal_token 256-dim"]
-        NoisyCT["noisy CT\n(timestep t)"] --> UNet["Denoising UNet\ntrainable"]
-        Feats -->|"CrossAttention3D\nK, V from encoder · Q from UNet"| UNet
-        UNet --> Out2["ε + learned variance prediction → Synthetic CT"]
-    end
-
-    Stage1 --> Stage2
-```
+![Swin-Vnet denoiser architecture](../images/swin_vnet.png)
 
 ---
 
@@ -95,39 +78,7 @@ pretrained_encoder_diffusion/
 
 ### Architecture
 
-```mermaid
-flowchart TD
-    MRI["MRI · (B, 1, H, W, D)"]
-    MRI --> Stem["Stem\n7×7×3 Conv → 3×3×1 Conv → 64 ch"]
-
-    Stem --> L1["Level 1 · full res · 64 ch\n2× ResBlock + GroupNorm\n+ WindowSelfAttention3D window=(4,4,4) heads=4"]
-    L1 --> P1["StridedConv pool=(2,2,1) · XY↓2 Z unchanged"]
-
-    P1 --> L2["Level 2 · ½ res · 128 ch\n2× ResBlock + GroupNorm\n+ WindowSelfAttention3D heads=4"]
-    L2 --> P2["StridedConv pool=(2,2,1)"]
-
-    P2 --> L3["Level 3 · ¼ res · 192 ch\n2× ResBlock + GroupNorm\n+ WindowSelfAttention3D heads=8"]
-    L3 --> P3["StridedConv pool=(2,2,1)"]
-
-    P3 --> L4["Level 4 · ⅛ res · 256 ch\n2× ResBlock + GroupNorm\n+ WindowSelfAttention3D heads=8"]
-    L4 --> GAP["AdaptiveAvgPool3d\n+ Transformer bottleneck"]
-    GAP --> GT["global_token · (B, 256)"]
-
-    L1 --> f1["f₁ · (B, 64, H, W, D)"]
-    L2 --> f2["f₂ · (B, 128, H/2, W/2, D)"]
-    L3 --> f3["f₃ · (B, 192, H/4, W/4, D)"]
-    L4 --> f4["f₄ · (B, 256, H/8, W/8, D)"]
-```
-
-### Pretraining dual heads (discarded after Stage 1)
-
-```mermaid
-flowchart LR
-    Feats["f₁ f₂ f₃ f₄\nglobal_token"] --> DecA["Decoder A · MRI Reconstruction\nUpsampling + Conv → (1, H, W, D)"]
-    Feats --> DecB["Decoder B · CT Prediction\nUpsampling + Conv → (1, H, W, D)"]
-    DecA --> LA["L1(recon, MRI_gt) + SSIM(recon, MRI_gt)\nweight = 0.3 + 0.2"]
-    DecB --> LB["L1(pred, CT_gt)\nweight = 0.5"]
-```
+![MRI Semantic Encoder](../images/mri_semantic.png)
 
 ### Stage 1 Hyperparameters
 
@@ -154,51 +105,7 @@ flowchart LR
 
 ### Architecture
 
-```mermaid
-flowchart TD
-    subgraph Enc["Frozen MRI Encoder"]
-        MRI2["MRI"] --> FE["MRISemanticEncoder"]
-        FE --> f1e["f₁ · 64 ch"]
-        FE --> f2e["f₂ · 128 ch"]
-        FE --> f3e["f₃ · 192 ch"]
-        FE --> f4e["f₄ · 256 ch"]
-        FE --> GT2["global_token · 256"]
-    end
-
-    T["Timestep t"] --> SinEmb["Sinusoidal Embed\n+ global_token → condition c"]
-
-    subgraph Denoiser["Trainable Denoising UNet"]
-        NoisyCT["noisy CT · (B,1,H,W,D)"] --> IC["Init Conv 1→64 ch"]
-        IC --> DL1["Down L1 · ResBlock(c)\n+ CrossAttn3D Q=feat K,V=f₁"]
-        DL1 --> DL2["Down L2 · ResBlock(c)\n+ CrossAttn3D Q=feat K,V=f₂"]
-        DL2 --> DL3["Down L3 · ResBlock(c)\n+ CrossAttn3D Q=feat K,V=f₃+f₄"]
-        DL3 --> Mid["Middle · 2× ResBlock(c)"]
-        Mid --> UL3["Up L3 + skip → Dec L3"]
-        UL3 --> UL2["Up L2 + skip → Dec L2"]
-        UL2 --> UL1["Up L1 + skip → Dec L1"]
-        UL1 --> OC["Output Conv 64→2 ch"]
-        OC --> Pred["ε prediction + learned variance"]
-    end
-
-    GT2 --> SinEmb
-    f1e -->|K, V| DL1
-    f2e -->|K, V| DL2
-    f3e & f4e -->|K, V| DL3
-
-    Pred --> SCT["Synthetic CT\n(DDPM reverse · 1000 train / 50 infer steps)"]
-```
-
-### CrossAttention3D
-
-```mermaid
-flowchart LR
-    Q["Query · Denoiser feature\n(B, C_d, D, H, W)"] --> QP["Linear projection → Q"]
-    KV["Key/Value · Encoder fᵢ\n(B, C_e, D', H', W')"] --> KP["Linear projection → K"]
-    KV --> VP["Linear projection → V"]
-    QP & KP & VP --> Attn["Scaled Dot-Product Attention\nsoftmax(QKᵀ / √d) · V"]
-    Attn --> Add["+ Residual"]
-    Add --> Out["Output feature"]
-```
+![Hybrid Diffusion Model](../images/hybrid_diffusion.png)
 
 ### Stage 2 Hyperparameters
 

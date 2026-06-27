@@ -20,24 +20,7 @@ The TriPlane Mamba approach improves upon the TriAxial methodology by replacing 
 
 The inner mechanics of the **TriPlane Mamba Block** are illustrated below:
 
-```mermaid
-graph TD
-    subgraph TriPlane Mamba Block
-        Input["Input Features (1, C, D, H, W)"] --> Local["Branch 1: MultiScaleDepthConv (Local)"]
-        Input --> GlobalHW["Branch 2a: HW Plane Scan (Axial)"]
-        Input --> GlobalDW["Branch 2b: DW Plane Scan (Coronal)"]
-        Input --> GlobalDH["Branch 2c: DH Plane Scan (Sagittal)"]
-        
-        GlobalHW --> Fuse["Fusion (Conv3D)"]
-        GlobalDW --> Fuse
-        GlobalDH --> Fuse
-        
-        Fuse --> Add["+"]
-        Local --> Add
-        Input -.->|Residual| Add
-        Add --> Output["Output Features"]
-    end
-```
+![TriPlane Mamba Block](../../images/triplane_mamba_block.png)
 
 ---
 

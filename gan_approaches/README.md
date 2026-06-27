@@ -66,44 +66,7 @@ A **supervised paired image-to-image** translation model. The generator learns a
 
 ### Architecture
 
-```mermaid
-flowchart TD
-    MRI["MRI slice · (B, 1, 256, 256)"]
-
-    subgraph Gen["U-Net Generator"]
-        E0["InitDown · Conv4×4 · 64 ch · LeakyReLU"]
-        E1["Down1 · Conv4×4↓ · 128 ch · BN · LeakyReLU"]
-        E2["Down2 · 256 ch"]
-        E3["Down3 · 512 ch"]
-        E4["Down4 · 512 ch"]
-        E5["Down5 · 512 ch"]
-        E6["Down6 · 512 ch"]
-        BN["Bottleneck · Conv4×4 · 512 ch · ReLU → 1×1"]
-        U1["Up1 · ConvTranspose4×4 · 512 ch · Dropout 0.5"]
-        U2["Up2 · 512+512 → 512 ch · Dropout 0.5"]
-        U3["Up3 · 512+512 → 512 ch · Dropout 0.5"]
-        U4["Up4 · 512+512 → 512 ch"]
-        U5["Up5 · 512+512 → 256 ch"]
-        U6["Up6 · 256+256 → 128 ch"]
-        U7["Up7 · 128+128 → 64 ch"]
-        FU["FinalUp · ConvTranspose4×4 · 1 ch · Sigmoid"]
-    end
-
-    subgraph Disc["PatchGAN Discriminator"]
-        Cat["Concat(MRI, CT) → 2 ch"]
-        D1["Conv4×4 s2 · 64 ch · LeakyReLU"]
-        D2["Conv4×4 s2 · 128 ch · BN · LeakyReLU"]
-        D3["Conv4×4 s2 · 256 ch · BN · LeakyReLU"]
-        D4["Conv4×4 s1 · 512 ch · BN · LeakyReLU"]
-        D5["Conv4×4 s1 · 1 ch · patch score"]
-    end
-
-    MRI --> E0 --> E1 --> E2 --> E3 --> E4 --> E5 --> E6 --> BN
-    BN --> U1 --> U2 --> U3 --> U4 --> U5 --> U6 --> U7 --> FU
-    FU --> SCT["Synthetic CT"]
-
-    MRI & SCT --> Cat --> D1 --> D2 --> D3 --> D4 --> D5
-```
+![Pix2Pix U-Net Generator Architecture](../images/generator_unet_gans.png)
 
 ### Loss
 
@@ -137,55 +100,7 @@ An **unsupervised** model that learns a shared latent space between MRI and CT d
 
 ### Architecture
 
-```mermaid
-flowchart TD
-    MRI["MRI · domain X₁"]
-    CT["CT · domain X₂"]
-
-    subgraph E1_block["Encoder E1 (MRI)"]
-        ReflPad1["ReflectionPad2d(3)"]
-        Conv7_1["Conv 7×7 · 64 ch · InstanceNorm · LeakyReLU"]
-        Down1A["Conv4×4 s2 · 128 ch · InstanceNorm · ReLU"]
-        Down1B["Conv4×4 s2 · 256 ch · InstanceNorm · ReLU"]
-        Res1["3× ResidualBlock · 256 ch"]
-        Shared1["Shared ResBlock"]
-        Reparam1["Reparameterization · z₁ = μ₁ + ε"]
-    end
-
-    subgraph E2_block["Encoder E2 (CT)"]
-        ReflPad2["ReflectionPad2d(3)"]
-        Conv7_2["Conv 7×7 · 64 ch · InstanceNorm · LeakyReLU"]
-        Down2A["Conv4×4 s2 · 128 ch · InstanceNorm · ReLU"]
-        Down2B["Conv4×4 s2 · 256 ch · InstanceNorm · ReLU"]
-        Res2["3× ResidualBlock · 256 ch"]
-        Shared2["Shared ResBlock (same weights)"]
-        Reparam2["Reparameterization · z₂ = μ₂ + ε"]
-    end
-
-    subgraph G1_block["Generator G1 (→ MRI)"]
-        SharedG1["Shared ResBlock"]
-        ResG1["3× ResidualBlock"]
-        Up1A["ConvTranspose4×4 s2 · 128 ch · InstanceNorm · LeakyReLU"]
-        Up1B["ConvTranspose4×4 s2 · 64 ch · InstanceNorm · LeakyReLU"]
-        Out1["ReflPad + Conv7×7 · 1 ch · Tanh"]
-    end
-
-    subgraph G2_block["Generator G2 (→ CT)"]
-        SharedG2["Shared ResBlock (same weights)"]
-        ResG2["3× ResidualBlock"]
-        Up2A["ConvTranspose4×4 s2 · 128 ch · InstanceNorm · LeakyReLU"]
-        Up2B["ConvTranspose4×4 s2 · 64 ch · InstanceNorm · LeakyReLU"]
-        Out2["ReflPad + Conv7×7 · 1 ch · Tanh"]
-    end
-
-    MRI --> E1_block --> z1["z₁ (shared space)"]
-    CT --> E2_block --> z2["z₂ (shared space)"]
-
-    z1 --> G2_block --> SCT["MRI → Synthetic CT"]
-    z2 --> G1_block --> SMRI["CT → Synthetic MRI (cycle)"]
-    z1 --> G1_block
-    z2 --> G2_block
-```
+![UNIT — Coupled VAE-GAN with Shared Latent Space](../images/unit.png)
 
 ### Loss
 

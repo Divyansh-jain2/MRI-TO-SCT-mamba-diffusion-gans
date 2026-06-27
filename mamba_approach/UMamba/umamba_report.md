@@ -7,47 +7,6 @@
 
 The network takes a 2-channel concatenated input `(Batch, 2, Depth, Height, Width)` consisting of the noisy CT target and the clean MRI conditioning signal. It outputs the predicted noise tensor for the current diffusion step `t`.
 
-```mermaid
-graph TD
-    Input[Noisy CT + MRI Condition] --> Stem[Stem ConvNormAct]
-    t_emb[Diffusion Timestep t] --> TimeMLP[Time Embedding MLP]
-    
-    Stem --> E1[UMambaBlockTime Stage 1]
-    TimeMLP -.Condition.-> E1
-    E1 --> D1[Downsample]
-    D1 --> E2[UMambaBlockTime Stage 2]
-    TimeMLP -.Condition.-> E2
-    
-    E2 --> D2[Downsample]
-    D2 --> E3[UMambaBlockTime Stage 3]
-    TimeMLP -.Condition.-> E3
-    
-    E3 --> D3[Downsample]
-    D3 --> E4[UMambaBlockTime Bottleneck]
-    TimeMLP -.Condition.-> E4
-    
-    E4 --> Up3[Upsample]
-    E3 --> Att3[Attention Gate]
-    Up3 --> Att3
-    Att3 -.Gated Skip.-> Dec3[UMambaBlockTime Stage 3]
-    TimeMLP -.Condition.-> Dec3
-    
-    Dec3 --> Up2[Upsample]
-    E2 --> Att2[Attention Gate]
-    Up2 --> Att2
-    Att2 -.Gated Skip.-> Dec2[UMambaBlockTime Stage 2]
-    TimeMLP -.Condition.-> Dec2
-    
-    Dec2 --> Up1[Upsample]
-    E1 --> Att1[Attention Gate]
-    Up1 --> Att1
-    Att1 -.Gated Skip.-> Dec1[UMambaBlockTime Stage 1]
-    TimeMLP -.Condition.-> Dec1
-    
-    Dec1 --> Head[Head: Conv3d]
-    Head --> Output[Predicted Noise]
-```
-
 ### 2.1 Advanced Diffusion Conditioning
 *   **High-Resolution Timestep Embedding**: Unlike standard diffusers using 64-dimensional embeddings, UMamba employs a 256-dimensional `SinusoidalPositionEmbeddings` layer. This is passed through a 2-layer SiLU MLP to maintain extreme precision across all 1,000 diffusion steps.
 *   **Classifier-Free Guidance (CFG)**: During training, the MRI condition channel is zeroed out with a probability of `cfg_dropout_p = 0.10`. During inference, a `guided_sample()` helper executes a dual forward pass (one with the MRI, one with a zeroed-out condition tensor) and linearly extrapolates them using a weight (`w=3.0`), significantly sharpening fine structural boundaries like bone.
